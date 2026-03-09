@@ -26,31 +26,46 @@ jobs:
   emit-provenance:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: ${{ secrets.WORKLOAD_MANIFEST_SIGNING_KEY != '' && secrets.WORKLOAD_MANIFEST_SIGNING_KEY_ID != '' }}
     env:
       WORKLOAD_MANIFEST_SIGNING_KEY: ${{ secrets.WORKLOAD_MANIFEST_SIGNING_KEY }}
       WORKLOAD_MANIFEST_SIGNING_KEY_ID: ${{ secrets.WORKLOAD_MANIFEST_SIGNING_KEY_ID }}
       WORKLOAD_MANIFEST_SIGNING_IDENTITY: github-actions[bot]
     steps:
+      - name: Check signing secrets
+        id: check-secrets
+        run: |
+          if [[ -z "$WORKLOAD_MANIFEST_SIGNING_KEY" || -z "$WORKLOAD_MANIFEST_SIGNING_KEY_ID" ]]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Signing secrets are not configured. Skipping provenance emission."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
+        if: steps.check-secrets.outputs.available == 'true'
         uses: actions/checkout@v4
 
       - name: Setup pnpm
+        if: steps.check-secrets.outputs.available == 'true'
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
+        if: steps.check-secrets.outputs.available == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
 
       - name: Install dependencies
+        if: steps.check-secrets.outputs.available == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Emit workload manifest provenance
+        if: steps.check-secrets.outputs.available == 'true'
         run: pnpm workload-manifest:provenance
 
       - name: Upload workload manifest provenance artifact
+        if: steps.check-secrets.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: workload-manifest-provenance
