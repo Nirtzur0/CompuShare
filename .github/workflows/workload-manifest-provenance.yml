@@ -1,0 +1,57 @@
+name: workload-manifest-provenance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/workload-manifest-provenance.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "services/control-plane/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/workload-manifest-provenance.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "services/control-plane/**"
+
+permissions:
+  contents: read
+
+jobs:
+  emit-provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WORKLOAD_MANIFEST_SIGNING_KEY: ${{ secrets.WORKLOAD_MANIFEST_SIGNING_KEY }}
+      WORKLOAD_MANIFEST_SIGNING_KEY_ID: ${{ secrets.WORKLOAD_MANIFEST_SIGNING_KEY_ID }}
+      WORKLOAD_MANIFEST_SIGNING_IDENTITY: github-actions[bot]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Emit workload manifest provenance
+        run: pnpm workload-manifest:provenance
+
+      - name: Upload workload manifest provenance artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: workload-manifest-provenance
+          path: services/control-plane/artifacts/workload-manifest-provenance.json
+          if-no-files-found: error

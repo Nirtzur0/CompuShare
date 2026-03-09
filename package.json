@@ -1,0 +1,19 @@
+{
+  "name": "compushare",
+  "private": true,
+  "packageManager": "pnpm@10.30.3",
+  "scripts": {
+    "dev:infra:up": "docker compose up -d postgres",
+    "dev:infra:down": "docker compose down",
+    "dev:control-plane": "pnpm --filter @compushare/control-plane dev",
+    "dev:provider-runtime": "pnpm --filter @compushare/provider-runtime dev",
+    "dev:dashboard": "pnpm --filter @compushare/dashboard dev",
+    "seed:demo": "pnpm --filter @compushare/control-plane demo:seed",
+    "lint": "pnpm --filter @compushare/control-plane lint && pnpm --filter @compushare/provider-runtime lint && pnpm --filter @compushare/dashboard lint",
+    "typecheck": "pnpm --filter @compushare/control-plane typecheck && pnpm --filter @compushare/provider-runtime typecheck && pnpm --filter @compushare/dashboard typecheck",
+    "test": "pnpm --filter @compushare/control-plane test && pnpm --filter @compushare/provider-runtime test && pnpm --filter @compushare/dashboard test",
+    "workload-manifest:provenance": "pnpm --filter @compushare/control-plane workload-manifest:provenance",
+    "format": "pnpm --filter @compushare/control-plane format && pnpm --filter @compushare/provider-runtime format && pnpm --filter @compushare/dashboard format",
+    "format:check": "pnpm --filter @compushare/control-plane format:check && pnpm --filter @compushare/provider-runtime format:check && pnpm --filter @compushare/dashboard format:check"
+  }
+}
