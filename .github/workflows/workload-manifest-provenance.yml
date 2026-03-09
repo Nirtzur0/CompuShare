@@ -26,6 +26,7 @@ jobs:
   emit-provenance:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    if: ${{ secrets.WORKLOAD_MANIFEST_SIGNING_KEY != '' && secrets.WORKLOAD_MANIFEST_SIGNING_KEY_ID != '' }}
     env:
       WORKLOAD_MANIFEST_SIGNING_KEY: ${{ secrets.WORKLOAD_MANIFEST_SIGNING_KEY }}
       WORKLOAD_MANIFEST_SIGNING_KEY_ID: ${{ secrets.WORKLOAD_MANIFEST_SIGNING_KEY_ID }}
