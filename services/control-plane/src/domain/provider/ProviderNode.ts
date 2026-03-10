@@ -8,6 +8,10 @@ import {
   parseProviderHealthState
 } from "./ProviderHealthState.js";
 import { ProviderHostname } from "./ProviderHostname.js";
+import {
+  ProviderNodeAttestation,
+  type ProviderNodeAttestationSnapshot
+} from "./ProviderNodeAttestation.js";
 import { ProviderMachineId } from "./ProviderMachineId.js";
 import { ProviderNodeId } from "./ProviderNodeId.js";
 import { ProviderNodeLabel } from "./ProviderNodeLabel.js";
@@ -15,6 +19,10 @@ import {
   ProviderNodeRoutingProfile,
   type ProviderNodeRoutingProfileSnapshot
 } from "./ProviderNodeRoutingProfile.js";
+import {
+  ProviderNodeRoutingState,
+  type ProviderNodeRoutingStateSnapshot
+} from "./ProviderNodeRoutingState.js";
 import { ProviderRegion } from "./ProviderRegion.js";
 import {
   type ProviderRuntime,
@@ -39,7 +47,9 @@ export interface ProviderNodeSnapshot {
     driverVersion: string;
     gpus: ProviderGpuInventorySnapshot[];
   };
+  attestation?: ProviderNodeAttestationSnapshot;
   routingProfile: ProviderNodeRoutingProfileSnapshot | null;
+  routingState?: ProviderNodeRoutingStateSnapshot;
   enrolledAt: string;
 }
 
@@ -55,7 +65,9 @@ export class ProviderNode {
     public readonly trustTier: ProviderTrustTier,
     public readonly healthState: ProviderHealthState,
     public readonly inventory: ProviderGpuInventory,
+    public readonly attestation: ProviderNodeAttestation,
     public readonly routingProfile: ProviderNodeRoutingProfile | null,
+    public readonly routingState: ProviderNodeRoutingState,
     public readonly enrolledAt: Date
   ) {}
 
@@ -72,7 +84,9 @@ export class ProviderNode {
       driverVersion: string;
       gpus: readonly ProviderGpuInventorySnapshot[];
     };
+    attestation?: ProviderNodeAttestationSnapshot | null;
     routingProfile?: ProviderNodeRoutingProfileSnapshot | null;
+    routingState?: ProviderNodeRoutingStateSnapshot | null;
     enrolledAt: Date;
   }): ProviderNode {
     return new ProviderNode(
@@ -89,6 +103,21 @@ export class ProviderNode {
         driverVersion: input.inventory.driverVersion,
         items: input.inventory.gpus
       }),
+      input.attestation === undefined || input.attestation === null
+        ? ProviderNodeAttestation.none(input.trustTier ?? "t1_vetted")
+        : ProviderNodeAttestation.rehydrate({
+            status: input.attestation.status,
+            lastAttestedAt:
+              input.attestation.lastAttestedAt === null
+                ? null
+                : new Date(input.attestation.lastAttestedAt),
+            attestationExpiresAt:
+              input.attestation.attestationExpiresAt === null
+                ? null
+                : new Date(input.attestation.attestationExpiresAt),
+            attestationType: input.attestation.attestationType,
+            effectiveTrustTier: input.attestation.effectiveTrustTier
+          }),
       input.routingProfile === undefined || input.routingProfile === null
         ? null
         : ProviderNodeRoutingProfile.rehydrate({
@@ -96,6 +125,17 @@ export class ProviderNode {
             endpointUrl: input.routingProfile.endpointUrl,
             priceFloorUsdPerHour: input.routingProfile.priceFloorUsdPerHour,
             updatedAt: new Date(input.routingProfile.updatedAt)
+          }),
+      input.routingState === undefined || input.routingState === null
+        ? ProviderNodeRoutingState.empty()
+        : ProviderNodeRoutingState.rehydrate({
+            warmModelAliases: input.routingState.warmModelAliases.map(
+              (warmModelAlias) => ({
+                approvedModelAlias: warmModelAlias.approvedModelAlias,
+                declaredAt: new Date(warmModelAlias.declaredAt),
+                expiresAt: new Date(warmModelAlias.expiresAt)
+              })
+            )
           }),
       input.enrolledAt
     );
@@ -115,7 +155,9 @@ export class ProviderNode {
       driverVersion: string;
       gpus: readonly ProviderGpuInventorySnapshot[];
     };
+    attestation?: ProviderNodeAttestationSnapshot;
     routingProfile?: ProviderNodeRoutingProfileSnapshot | null;
+    routingState?: ProviderNodeRoutingStateSnapshot | null;
     enrolledAt: Date;
   }): ProviderNode {
     return new ProviderNode(
@@ -132,6 +174,21 @@ export class ProviderNode {
         driverVersion: input.inventory.driverVersion,
         items: input.inventory.gpus
       }),
+      input.attestation === undefined
+        ? ProviderNodeAttestation.none(parseProviderTrustTier(input.trustTier))
+        : ProviderNodeAttestation.rehydrate({
+            status: input.attestation.status,
+            lastAttestedAt:
+              input.attestation.lastAttestedAt === null
+                ? null
+                : new Date(input.attestation.lastAttestedAt),
+            attestationExpiresAt:
+              input.attestation.attestationExpiresAt === null
+                ? null
+                : new Date(input.attestation.attestationExpiresAt),
+            attestationType: input.attestation.attestationType,
+            effectiveTrustTier: input.attestation.effectiveTrustTier
+          }),
       input.routingProfile === undefined || input.routingProfile === null
         ? null
         : ProviderNodeRoutingProfile.rehydrate({
@@ -139,6 +196,17 @@ export class ProviderNode {
             endpointUrl: input.routingProfile.endpointUrl,
             priceFloorUsdPerHour: input.routingProfile.priceFloorUsdPerHour,
             updatedAt: new Date(input.routingProfile.updatedAt)
+          }),
+      input.routingState === undefined || input.routingState === null
+        ? ProviderNodeRoutingState.empty()
+        : ProviderNodeRoutingState.rehydrate({
+            warmModelAliases: input.routingState.warmModelAliases.map(
+              (warmModelAlias) => ({
+                approvedModelAlias: warmModelAlias.approvedModelAlias,
+                declaredAt: new Date(warmModelAlias.declaredAt),
+                expiresAt: new Date(warmModelAlias.expiresAt)
+              })
+            )
           }),
       input.enrolledAt
     );
@@ -159,7 +227,9 @@ export class ProviderNode {
         driverVersion: this.inventory.driverVersion,
         gpus: this.inventory.items.map((item) => item.toSnapshot())
       },
+      attestation: this.attestation.toSnapshot(),
       routingProfile: this.routingProfile?.toSnapshot() ?? null,
+      routingState: this.routingState.toSnapshot(),
       enrolledAt: this.enrolledAt.toISOString()
     };
   }

@@ -161,6 +161,10 @@ h2 {
   padding: 1.4rem;
 }
 
+.pricing-history-note h2 {
+  margin-bottom: 0.35rem;
+}
+
 .trend-grid {
   display: grid;
   gap: 1rem;
@@ -311,6 +315,99 @@ h2 {
   color: var(--warning);
 }
 
+.pricing-node-grid {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.pricing-node-card {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.pricing-node-header {
+  margin-bottom: 0;
+}
+
+.pricing-node-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.pricing-baseline-grid,
+.pricing-input-grid,
+.pricing-comparison-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.pricing-baseline-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.pricing-input-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pricing-comparison-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pricing-comparison-column,
+.pricing-unavailable {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.delta-column {
+  background: rgba(198, 93, 58, 0.08);
+}
+
+.pricing-input {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.pricing-input input {
+  width: 100%;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  font: inherit;
+}
+
+.pricing-input input:focus {
+  outline: 2px solid rgba(198, 93, 58, 0.24);
+  outline-offset: 2px;
+}
+
+.pricing-metric {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 1.55rem;
+  line-height: 1.1;
+}
+
+.pricing-metric small {
+  margin-left: 0.25rem;
+  font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.pricing-unavailable-copy {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
 @media (max-width: 900px) {
   body {
     padding: 1rem;
@@ -329,6 +426,16 @@ h2 {
   }
 
   .hero-meta {
+    justify-content: flex-start;
+  }
+
+  .pricing-baseline-grid,
+  .pricing-input-grid,
+  .pricing-comparison-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pricing-node-meta {
     justify-content: flex-start;
   }
 }

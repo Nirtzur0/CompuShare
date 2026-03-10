@@ -3,7 +3,7 @@ import { DomainValidationError } from "../identity/DomainValidationError.js";
 import { OrganizationId } from "../identity/OrganizationId.js";
 
 export type WorkloadSensitivityClass = "standard_business";
-export type WorkloadRequestKind = "chat.completions";
+export type WorkloadRequestKind = "chat.completions" | "embeddings";
 
 export interface WorkloadRuntimeConfigSnapshot {
   requestKind: string;
@@ -170,9 +170,12 @@ export class WorkloadBundle {
     temperature: number | null;
     topP: number | null;
   }): WorkloadRuntimeConfigSnapshot {
-    if (config.requestKind !== "chat.completions") {
+    if (
+      config.requestKind !== "chat.completions" &&
+      config.requestKind !== "embeddings"
+    ) {
       throw new DomainValidationError(
-        "Workload runtime request kind must be chat.completions."
+        "Workload runtime request kind must be chat.completions or embeddings."
       );
     }
 

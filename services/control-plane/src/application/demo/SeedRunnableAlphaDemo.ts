@@ -8,6 +8,7 @@ import type { CreateOrganizationUseCase } from "../identity/CreateOrganizationUs
 import type { IssueOrganizationApiKeyUseCase } from "../identity/IssueOrganizationApiKeyUseCase.js";
 import type { ResolveSyncPlacementUseCase } from "../placement/ResolveSyncPlacementUseCase.js";
 import type { EnrollProviderNodeUseCase } from "../provider/EnrollProviderNodeUseCase.js";
+import type { ReplaceProviderNodeRoutingStateUseCase } from "../provider/ReplaceProviderNodeRoutingStateUseCase.js";
 import type { RecordProviderBenchmarkUseCase } from "../provider/RecordProviderBenchmarkUseCase.js";
 import type { UpsertProviderNodeRoutingProfileUseCase } from "../provider/UpsertProviderNodeRoutingProfileUseCase.js";
 
@@ -29,6 +30,21 @@ export interface SeedRunnableAlphaDemoResponse {
     modelAlias: string;
     curlCommand: string;
   };
+  embeddingDemo: {
+    gatewayUrl: string;
+    modelAlias: string;
+    curlCommand: string;
+  };
+  batchDemo: {
+    filesUrl: string;
+    batchesUrl: string;
+    inputFilePath: string;
+    inputJsonl: string;
+    uploadCurlCommand: string;
+    createCurlCommand: string;
+    getCurlCommand: string;
+    workerCommand: string;
+  };
   buyer: {
     organizationId: string;
     organizationSlug: string;
@@ -49,6 +65,7 @@ export interface SeedRunnableAlphaDemoResponse {
     organizationSlug: string;
     actorUserId: string;
     dashboardUrl: string;
+    pricingDashboardUrl: string;
     apiKey: {
       id: string;
       environment: string;
@@ -84,6 +101,10 @@ export class SeedRunnableAlphaDemo {
     >,
     private readonly recordProviderBenchmarkUseCase: Pick<
       RecordProviderBenchmarkUseCase,
+      "execute"
+    >,
+    private readonly replaceProviderNodeRoutingStateUseCase: Pick<
+      ReplaceProviderNodeRoutingStateUseCase,
       "execute"
     >,
     private readonly upsertProviderNodeRoutingProfileUseCase: Pick<
@@ -153,7 +174,7 @@ export class SeedRunnableAlphaDemo {
     const providerNode = await this.enrollProviderNodeUseCase.execute({
       organizationId: providerOrganization.organization.id,
       machineId: `demo-provider-node-${seedTag}`,
-      label: "Runnable Alpha Node",
+      label: "Runnable Alpha Warm Node",
       runtime: "linux",
       region: "eu-central-1",
       hostname: `provider-${seedTag}.internal`,
@@ -174,7 +195,7 @@ export class SeedRunnableAlphaDemo {
       providerNodeId: providerNode.node.id,
       gpuClass: "NVIDIA A100",
       vramGb: 80,
-      throughputTokensPerSecond: 742.5,
+      throughputTokensPerSecond: 690,
       driverVersion: "550.54.14"
     });
     const routingProfile =
@@ -187,8 +208,56 @@ export class SeedRunnableAlphaDemo {
           environment: providerApiKey.apiKey.environment,
           providerNodeId: providerNode.node.id
         }),
-        priceFloorUsdPerHour: 9.5
+        priceFloorUsdPerHour: 8.5
       });
+    const backupNode = await this.enrollProviderNodeUseCase.execute({
+      organizationId: providerOrganization.organization.id,
+      machineId: `demo-provider-node-backup-${seedTag}`,
+      label: "Runnable Alpha PricePerf Node",
+      runtime: "linux",
+      region: "eu-central-1",
+      hostname: `provider-backup-${seedTag}.internal`,
+      inventory: {
+        driverVersion: "550.54.14",
+        gpus: [
+          {
+            model: "NVIDIA A100",
+            vramGb: 80,
+            count: 4,
+            interconnect: "NVLink"
+          }
+        ]
+      }
+    });
+    await this.recordProviderBenchmarkUseCase.execute({
+      organizationId: providerOrganization.organization.id,
+      providerNodeId: backupNode.node.id,
+      gpuClass: "NVIDIA A100",
+      vramGb: 80,
+      throughputTokensPerSecond: 900,
+      driverVersion: "550.54.14"
+    });
+    await this.upsertProviderNodeRoutingProfileUseCase.execute({
+      organizationId: providerOrganization.organization.id,
+      providerNodeId: backupNode.node.id,
+      endpointUrl: this.buildProviderRuntimeEndpointUrl({
+        baseUrl: request.providerRuntimeBaseUrl,
+        organizationId: providerOrganization.organization.id,
+        environment: providerApiKey.apiKey.environment,
+        providerNodeId: backupNode.node.id
+      }),
+      priceFloorUsdPerHour: 10
+    });
+    await this.replaceProviderNodeRoutingStateUseCase.execute({
+      organizationId: providerOrganization.organization.id,
+      providerNodeId: providerNode.node.id,
+      warmModelAliases: [
+        {
+          approvedModelAlias: "openai/gpt-oss-120b-like",
+          expiresAt: new Date(seededAt.getTime() + 10 * 60 * 1000).toISOString()
+        }
+      ]
+    });
 
     await this.recordCustomerChargeUseCase.execute({
       organizationId: buyerOrganization.organization.id,
@@ -239,6 +308,21 @@ export class SeedRunnableAlphaDemo {
           buyerApiKey: buyerApiKey.secret
         })
       },
+      embeddingDemo: {
+        gatewayUrl: new URL(
+          "/v1/embeddings",
+          request.controlPlaneBaseUrl
+        ).toString(),
+        modelAlias: "cheap-embed-v1",
+        curlCommand: this.buildEmbeddingCurlCommand({
+          controlPlaneBaseUrl: request.controlPlaneBaseUrl,
+          buyerApiKey: buyerApiKey.secret
+        })
+      },
+      batchDemo: this.buildBatchDemo({
+        controlPlaneBaseUrl: request.controlPlaneBaseUrl,
+        buyerApiKey: buyerApiKey.secret
+      }),
       buyer: {
         organizationId: buyerOrganization.organization.id,
         organizationSlug: buyerOrganization.organization.slug,
@@ -264,6 +348,12 @@ export class SeedRunnableAlphaDemo {
         dashboardUrl: this.buildDashboardUrl({
           baseUrl: request.dashboardBaseUrl,
           pathname: "/provider",
+          organizationId: providerOrganization.organization.id,
+          actorUserId: providerOrganization.founder.userId
+        }),
+        pricingDashboardUrl: this.buildDashboardUrl({
+          baseUrl: request.dashboardBaseUrl,
+          pathname: "/provider/pricing",
           organizationId: providerOrganization.organization.id,
           actorUserId: providerOrganization.founder.userId
         }),
@@ -337,6 +427,83 @@ export class SeedRunnableAlphaDemo {
     ].join(" ");
   }
 
+  private buildEmbeddingCurlCommand(input: {
+    controlPlaneBaseUrl: string;
+    buyerApiKey: string;
+  }): string {
+    const embeddingUrl = new URL(
+      "/v1/embeddings",
+      input.controlPlaneBaseUrl
+    ).toString();
+
+    return [
+      "curl -sS",
+      `-H 'Authorization: Bearer ${input.buyerApiKey}'`,
+      "-H 'Content-Type: application/json'",
+      `-X POST '${embeddingUrl}'`,
+      `-d '{"model":"cheap-embed-v1","input":["hello world","provider marketplace"]}'`
+    ].join(" ");
+  }
+
+  private buildBatchDemo(input: {
+    controlPlaneBaseUrl: string;
+    buyerApiKey: string;
+  }): SeedRunnableAlphaDemoResponse["batchDemo"] {
+    const filesUrl = new URL("/v1/files", input.controlPlaneBaseUrl).toString();
+    const batchesUrl = new URL(
+      "/v1/batches",
+      input.controlPlaneBaseUrl
+    ).toString();
+    const inputFilePath = "/tmp/compushare-batch-input.jsonl";
+    const inputJsonl = [
+      JSON.stringify({
+        custom_id: "embed-1",
+        method: "POST",
+        url: "/v1/embeddings",
+        body: {
+          model: "cheap-embed-v1",
+          input: "hello world"
+        }
+      }),
+      JSON.stringify({
+        custom_id: "chat-1",
+        method: "POST",
+        url: "/v1/chat/completions",
+        body: {
+          model: "openai/gpt-oss-120b-like",
+          messages: [{ role: "user", content: "Summarize warm-cache routing." }]
+        }
+      })
+    ].join("\n");
+
+    return {
+      filesUrl,
+      batchesUrl,
+      inputFilePath,
+      inputJsonl,
+      uploadCurlCommand: [
+        "curl -sS",
+        `-H 'Authorization: Bearer ${input.buyerApiKey}'`,
+        `-F 'purpose=batch'`,
+        `-F 'file=@${inputFilePath};type=application/jsonl'`,
+        `-X POST '${filesUrl}'`
+      ].join(" "),
+      createCurlCommand: [
+        "curl -sS",
+        `-H 'Authorization: Bearer ${input.buyerApiKey}'`,
+        "-H 'Content-Type: application/json'",
+        `-X POST '${batchesUrl}'`,
+        `-d '{"input_file_id":"<uploaded_file_id>","endpoint":"/v1/embeddings","completion_window":"24h"}'`
+      ].join(" "),
+      getCurlCommand: [
+        "curl -sS",
+        `-H 'Authorization: Bearer ${input.buyerApiKey}'`,
+        `-X GET '${batchesUrl}/<batch_id>'`
+      ].join(" "),
+      workerCommand: "pnpm dev:batch-worker"
+    };
+  }
+
   private async seedSettlementHistory(input: {
     seededAt: Date;
     seedTag: string;
@@ -403,7 +570,8 @@ export class SeedRunnableAlphaDemo {
         minVramGb: 80,
         region: "eu-central-1",
         minimumTrustTier: "t1_vetted",
-        maxPriceUsdPerHour: 10
+        maxPriceUsdPerHour: 10,
+        approvedModelAlias: "openai/gpt-oss-120b-like"
       });
 
       await this.recordGatewayUsageMeterEventUseCase.execute({

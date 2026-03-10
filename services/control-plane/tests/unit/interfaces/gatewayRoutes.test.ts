@@ -8,6 +8,10 @@ import type { IssueOrganizationInvitationUseCase } from "../../../src/applicatio
 import type { UpdateOrganizationMemberRoleUseCase } from "../../../src/application/identity/UpdateOrganizationMemberRoleUseCase.js";
 import { GatewayApiKeyAuthenticationError } from "../../../src/application/identity/AuthenticateGatewayApiKeyUseCase.js";
 import {
+  ApprovedEmbeddingModelNotFoundError,
+  type ExecuteEmbeddingUseCase
+} from "../../../src/application/gateway/ExecuteEmbeddingUseCase.js";
+import {
   ApprovedChatModelNotFoundError,
   type ExecuteChatCompletionUseCase,
   GatewayAuthorizationHeaderError
@@ -34,7 +38,8 @@ import { DomainValidationError } from "../../../src/domain/identity/DomainValida
 import { buildApp } from "../../../src/interfaces/http/buildApp.js";
 
 function buildGatewayApp(
-  execute: ExecuteChatCompletionUseCase["execute"]
+  execute: ExecuteChatCompletionUseCase["execute"],
+  executeEmbedding?: ExecuteEmbeddingUseCase["execute"]
 ): FastifyInstance {
   return buildApp({
     createOrganizationUseCase: {
@@ -73,6 +78,14 @@ function buildGatewayApp(
     getProviderNodeDetailUseCase: {
       execute: () => Promise.reject(new Error("unused detail path"))
     } as unknown as GetProviderNodeDetailUseCase,
+    issueProviderNodeAttestationChallengeUseCase: {
+      execute: () =>
+        Promise.reject(new Error("unused provider attestation challenge path"))
+    },
+    submitProviderNodeAttestationUseCase: {
+      execute: () =>
+        Promise.reject(new Error("unused provider attestation submit path"))
+    },
     upsertProviderNodeRoutingProfileUseCase: {
       execute: () => Promise.reject(new Error("unused routing path"))
     } as unknown as UpsertProviderNodeRoutingProfileUseCase,
@@ -107,7 +120,14 @@ function buildGatewayApp(
 
     executeChatCompletionUseCase: {
       execute
-    }
+    },
+    ...(executeEmbedding === undefined
+      ? {}
+      : {
+          executeEmbeddingUseCase: {
+            execute: executeEmbedding
+          }
+        })
   });
 }
 
@@ -260,6 +280,223 @@ describe("gateway routes", () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  it("proxies a valid embedding request", async () => {
+    const app = buildGatewayApp(
+      () => Promise.reject(new Error("unused")),
+      () =>
+        Promise.resolve({
+          object: "list",
+          data: [
+            {
+              object: "embedding",
+              index: 0,
+              embedding: [0.1, 0.2, 0.3]
+            }
+          ],
+          model: "cheap-embed-v1",
+          usage: {
+            prompt_tokens: 3,
+            total_tokens: 3
+          }
+        })
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/embeddings",
+      headers: {
+        authorization: "Bearer csk_gateway_secret_value_000000"
+      },
+      payload: {
+        model: "cheap-embed-v1",
+        input: "hello"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      object: "list",
+      model: "cheap-embed-v1",
+      usage: { total_tokens: 3 }
+    });
+  });
+
+  it("maps unsupported embedding aliases to 404", async () => {
+    const app = buildGatewayApp(
+      () => Promise.reject(new Error("unused")),
+      () =>
+        Promise.reject(new ApprovedEmbeddingModelNotFoundError("unknown-embed"))
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/embeddings",
+      headers: {
+        authorization: "Bearer csk_gateway_secret_value_000000"
+      },
+      payload: {
+        model: "unknown-embed",
+        input: "hello"
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      error: "APPROVED_EMBEDDING_MODEL_NOT_FOUND"
+    });
+  });
+
+  it("requires auth and validates embedding request bodies", async () => {
+    const app = buildGatewayApp(
+      () => Promise.reject(new Error("unused")),
+      () => Promise.reject(new Error("unused"))
+    );
+    apps.push(app);
+
+    const missingAuthResponse = await app.inject({
+      method: "POST",
+      url: "/v1/embeddings",
+      payload: {
+        model: "cheap-embed-v1",
+        input: "hello"
+      }
+    });
+    const invalidBodyResponse = await app.inject({
+      method: "POST",
+      url: "/v1/embeddings",
+      headers: {
+        authorization: "Bearer csk_gateway_secret_value_000000"
+      },
+      payload: {
+        model: "x",
+        input: []
+      }
+    });
+
+    expect(missingAuthResponse.statusCode).toBe(401);
+    expect(invalidBodyResponse.statusCode).toBe(400);
+  });
+
+  it("maps embedding auth, placement, domain, admission, and upstream failures", async () => {
+    const scenarios = [
+      {
+        error: new GatewayAuthorizationHeaderError(),
+        expectedStatus: 401,
+        expectedCode: "GATEWAY_AUTHORIZATION_INVALID"
+      },
+      {
+        error: new DomainValidationError("bad embedding request"),
+        expectedStatus: 400,
+        expectedCode: "DOMAIN_VALIDATION_ERROR"
+      },
+      {
+        error: new GatewayApiKeyAuthenticationError(),
+        expectedStatus: 401,
+        expectedCode: "GATEWAY_API_KEY_AUTHENTICATION_ERROR"
+      },
+      {
+        error: new SyncPlacementOrganizationNotFoundError(
+          "0d6b1676-f112-41d6-9f98-27277a0dba79"
+        ),
+        expectedStatus: 404,
+        expectedCode: "SYNC_PLACEMENT_ORGANIZATION_NOT_FOUND"
+      },
+      {
+        error: new SyncPlacementBuyerCapabilityRequiredError(),
+        expectedStatus: 403,
+        expectedCode: "SYNC_PLACEMENT_BUYER_CAPABILITY_REQUIRED"
+      },
+      {
+        error: new NoEligiblePlacementCandidateError(),
+        expectedStatus: 404,
+        expectedCode: "NO_ELIGIBLE_PLACEMENT_CANDIDATE"
+      },
+      {
+        error: new WorkloadBundleAdmissionRejectedError("signature_invalid"),
+        expectedStatus: 503,
+        expectedCode: "WORKLOAD_BUNDLE_ADMISSION_REJECTED"
+      },
+      {
+        error: new GatewayUpstreamRequestError("HTTP 502"),
+        expectedStatus: 502,
+        expectedCode: "GATEWAY_UPSTREAM_REQUEST_ERROR"
+      },
+      {
+        error: new GatewayUpstreamResponseError("invalid payload"),
+        expectedStatus: 502,
+        expectedCode: "GATEWAY_UPSTREAM_RESPONSE_ERROR"
+      }
+    ] as const;
+
+    for (const scenario of scenarios) {
+      const app = buildGatewayApp(
+        () => Promise.reject(new Error("unused")),
+        () => Promise.reject(scenario.error)
+      );
+      apps.push(app);
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/embeddings",
+        headers: {
+          authorization: "Bearer csk_gateway_secret_value_000000"
+        },
+        payload: {
+          model: "cheap-embed-v1",
+          input: "hello"
+        }
+      });
+
+      expect(response.statusCode).toBe(scenario.expectedStatus);
+      expect(response.json()).toMatchObject({
+        error: scenario.expectedCode
+      });
+    }
+  });
+
+  it("returns 404 for embeddings when no embedding use case is wired and 500 for unexpected embedding failures", async () => {
+    const routeMissingApp = buildGatewayApp(() =>
+      Promise.reject(new Error("unused"))
+    );
+    apps.push(routeMissingApp);
+
+    const routeMissingResponse = await routeMissingApp.inject({
+      method: "POST",
+      url: "/v1/embeddings",
+      headers: {
+        authorization: "Bearer csk_gateway_secret_value_000000"
+      },
+      payload: {
+        model: "cheap-embed-v1",
+        input: "hello"
+      }
+    });
+
+    expect(routeMissingResponse.statusCode).toBe(404);
+
+    const failingApp = buildGatewayApp(
+      () => Promise.reject(new Error("unused")),
+      () => Promise.reject(new Error("unexpected embedding failure"))
+    );
+    apps.push(failingApp);
+
+    const failingResponse = await failingApp.inject({
+      method: "POST",
+      url: "/v1/embeddings",
+      headers: {
+        authorization: "Bearer csk_gateway_secret_value_000000"
+      },
+      payload: {
+        model: "cheap-embed-v1",
+        input: "hello"
+      }
+    });
+
+    expect(failingResponse.statusCode).toBe(500);
   });
 
   it("maps no-candidate errors to 404", async () => {

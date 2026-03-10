@@ -6,9 +6,17 @@ import {
   ProviderDashboardOverview,
   type ProviderDashboardOverviewSnapshot,
 } from "../../domain/provider/ProviderDashboardOverview.js";
+import {
+  ProviderPricingSimulator,
+  type ProviderPricingSimulatorSnapshot,
+} from "../../domain/provider/ProviderPricingSimulator.js";
 
 interface ProviderDashboardOverviewEnvelope {
   overview: ProviderDashboardOverviewSnapshot;
+}
+
+interface ProviderPricingSimulatorEnvelope {
+  simulator: ProviderPricingSimulatorSnapshot;
 }
 
 interface ConsumerDashboardOverviewEnvelope {
@@ -74,5 +82,34 @@ export class ControlPlaneDashboardClient {
       (await response.json()) as ProviderDashboardOverviewEnvelope;
 
     return ProviderDashboardOverview.create(payload.overview);
+  }
+
+  public async getProviderPricingSimulator(input: {
+    organizationId: string;
+    actorUserId: string;
+  }): Promise<ProviderPricingSimulator> {
+    const url = new URL(
+      `/v1/organizations/${input.organizationId}/dashboard/provider-pricing-simulator`,
+      this.baseUrl,
+    );
+    url.searchParams.set("actorUserId", input.actorUserId);
+
+    const response = await fetch(url, {
+      headers: {
+        accept: "application/json",
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Provider pricing simulator request failed with status ${String(response.status)}.`,
+      );
+    }
+
+    const payload =
+      (await response.json()) as ProviderPricingSimulatorEnvelope;
+
+    return ProviderPricingSimulator.create(payload.simulator);
   }
 }

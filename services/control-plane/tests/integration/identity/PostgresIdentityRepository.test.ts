@@ -791,4 +791,532 @@ describe("PostgresIdentityRepository", () => {
       ]
     });
   });
+
+  it("builds fraud graph counterparty exposures from settlements, usage, and shared members", async () => {
+    const repository = new PostgresIdentityRepository(pool);
+    const buyerOrganizationId = "a1d1f922-437f-4f5d-b3f1-3bb3c3a8b8d1";
+    const providerOrganizationId = "f52ce3cf-29d1-4d6f-9cf2-7d26374ec0d6";
+    const sharedUserId = "1e83a2a1-dc9b-4c64-96f6-bab5735f8e2a";
+    const financeUserId = "128893d7-1874-457b-b74f-78a93d871c8f";
+    const providerNodeId = "1d574e8e-a815-43d5-a7d4-e3e6e467dc81";
+    const decisionLogId = "4fef6fbe-28b4-42df-8d42-221d8d702775";
+
+    await pool.query(
+      `
+        INSERT INTO organizations (id, name, slug, account_capabilities, created_at)
+        VALUES
+          ($1, $2, $3, $4, $5),
+          ($6, $7, $8, $9, $10)
+      `,
+      [
+        buyerOrganizationId,
+        "Fraud Buyer",
+        "fraud-buyer",
+        ["buyer"],
+        new Date("2026-03-01T09:00:00.000Z"),
+        providerOrganizationId,
+        "Fraud Provider",
+        "fraud-provider",
+        ["provider"],
+        new Date("2026-03-01T09:00:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO users (id, email, display_name, created_at)
+        VALUES
+          ($1, $2, $3, $4),
+          ($5, $6, $7, $8)
+      `,
+      [
+        sharedUserId,
+        "shared@example.com",
+        "Shared Identity",
+        new Date("2026-03-01T09:00:00.000Z"),
+        financeUserId,
+        "finance@example.com",
+        "Finance User",
+        new Date("2026-03-01T09:00:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO organization_members (organization_id, user_id, role, joined_at)
+        VALUES
+          ($1, $2, $3, $4),
+          ($5, $2, $6, $7),
+          ($1, $8, $9, $10)
+      `,
+      [
+        buyerOrganizationId,
+        sharedUserId,
+        "owner",
+        new Date("2026-03-01T09:00:00.000Z"),
+        providerOrganizationId,
+        "owner",
+        new Date("2026-03-01T09:00:00.000Z"),
+        financeUserId,
+        "finance",
+        new Date("2026-03-01T09:00:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO provider_nodes (
+          id,
+          organization_id,
+          machine_id,
+          label,
+          runtime,
+          region,
+          hostname,
+          trust_tier,
+          health_state,
+          driver_version,
+          enrolled_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `,
+      [
+        providerNodeId,
+        providerOrganizationId,
+        "fraud-provider-node",
+        "Fraud Provider Node",
+        "linux",
+        "eu-central-1",
+        "fraud-provider.internal",
+        "t1_vetted",
+        "healthy",
+        "550.54.14",
+        new Date("2026-03-02T09:00:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO placement_decision_logs (
+          id,
+          organization_id,
+          environment,
+          gpu_class,
+          min_vram_gb,
+          region,
+          minimum_trust_tier,
+          max_price_usd_per_hour,
+          approved_model_alias,
+          candidate_count,
+          selected_provider_node_id,
+          selected_provider_organization_id,
+          selection_score,
+          price_performance_score,
+          warm_cache_matched,
+          rejection_reason,
+          created_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      `,
+      [
+        decisionLogId,
+        buyerOrganizationId,
+        "development",
+        "nvidia a100",
+        80,
+        "eu-central-1",
+        "t1_vetted",
+        10,
+        "openai/gpt-oss-120b-like",
+        1,
+        providerNodeId,
+        providerOrganizationId,
+        90,
+        80,
+        false,
+        null,
+        new Date("2026-03-08T10:00:00.000Z")
+      ]
+    );
+
+    await repository.appendLedgerTransaction(
+      LedgerTransaction.record({
+        organizationId: buyerOrganizationId,
+        transactionType: "job_settlement",
+        reference: "fraud-job-1",
+        createdByUserId: financeUserId,
+        occurredAt: new Date("2026-03-08T10:00:00.000Z"),
+        postings: [
+          LedgerPosting.create({
+            accountCode: "customer_prepaid_cash_liability",
+            direction: "debit",
+            amount: UsdAmount.parse("12.00"),
+            organizationId: buyerOrganizationId
+          }),
+          LedgerPosting.create({
+            accountCode: "provider_payable",
+            direction: "credit",
+            amount: UsdAmount.parse("10.00"),
+            organizationId: providerOrganizationId
+          }),
+          LedgerPosting.create({
+            accountCode: "platform_revenue",
+            direction: "credit",
+            amount: UsdAmount.parse("1.50")
+          }),
+          LedgerPosting.create({
+            accountCode: "risk_reserve",
+            direction: "credit",
+            amount: UsdAmount.parse("0.50"),
+            organizationId: providerOrganizationId
+          })
+        ]
+      })
+    );
+
+    await repository.appendLedgerTransaction(
+      LedgerTransaction.record({
+        organizationId: buyerOrganizationId,
+        transactionType: "job_settlement",
+        reference: "fraud-job-2",
+        createdByUserId: financeUserId,
+        occurredAt: new Date("2026-03-09T10:00:00.000Z"),
+        postings: [
+          LedgerPosting.create({
+            accountCode: "customer_prepaid_cash_liability",
+            direction: "debit",
+            amount: UsdAmount.parse("18.00"),
+            organizationId: buyerOrganizationId
+          }),
+          LedgerPosting.create({
+            accountCode: "provider_payable",
+            direction: "credit",
+            amount: UsdAmount.parse("15.00"),
+            organizationId: providerOrganizationId
+          }),
+          LedgerPosting.create({
+            accountCode: "platform_revenue",
+            direction: "credit",
+            amount: UsdAmount.parse("2.00")
+          }),
+          LedgerPosting.create({
+            accountCode: "risk_reserve",
+            direction: "credit",
+            amount: UsdAmount.parse("1.00"),
+            organizationId: providerOrganizationId
+          })
+        ]
+      })
+    );
+
+    await pool.query(
+      `
+        INSERT INTO gateway_usage_meter_events (
+          workload_bundle_id,
+          occurred_at,
+          customer_organization_id,
+          provider_organization_id,
+          provider_node_id,
+          environment,
+          request_kind,
+          approved_model_alias,
+          manifest_id,
+          decision_log_id,
+          batch_id,
+          batch_item_id,
+          prompt_tokens,
+          completion_tokens,
+          total_tokens,
+          latency_ms
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      `,
+      [
+        "1643dad4-46f9-4db1-97a4-ac423b449d4e",
+        new Date("2026-03-09T10:30:00.000Z"),
+        buyerOrganizationId,
+        providerOrganizationId,
+        providerNodeId,
+        "development",
+        "chat.completions",
+        "openai/gpt-oss-120b-like",
+        "chat-gpt-oss-120b-like-v1",
+        decisionLogId,
+        null,
+        null,
+        1200,
+        1800,
+        3000,
+        240
+      ]
+    );
+
+    await expect(
+      repository.listFraudGraphCounterpartyExposures({
+        organizationId: OrganizationId.create(buyerOrganizationId),
+        startDateInclusive: new Date("2026-03-01T00:00:00.000Z"),
+        endDateExclusive: new Date("2026-03-10T00:00:00.000Z")
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        counterpartyOrganizationId: OrganizationId.create(providerOrganizationId),
+        sharedMemberEmails: ["shared@example.com"],
+        outgoingSettlementCount: 2,
+        outgoingSettled: UsdAmount.parse("25.00"),
+        outgoingUsageEventCount: 1,
+        outgoingUsageTotalTokens: 3000,
+        incomingSettlementCount: 0,
+        incomingSettled: UsdAmount.parse("0.00")
+      })
+    ]);
+  });
+
+  it("aggregates provider node usage totals and settlement economics for pricing simulation", async () => {
+    const repository = new PostgresIdentityRepository(pool);
+    const providerOrganizationId = "618811f2-0de1-49d0-b0cb-ee08862ec0ed";
+    const buyerOrganizationId = "4fe43c93-3381-44d5-9ef3-95a64081470a";
+    const financeUserId = "b57142be-7c8d-4618-9062-74595aab5347";
+    const firstNodeId = "e3aad1a7-84d8-43af-a64d-23995d1f5da8";
+    const secondNodeId = "ae81187d-0d91-4daa-84ed-3ac047091937";
+    const decisionLogId = "ec319b14-0f61-4ecf-8ae3-6baab5dfe4fb";
+
+    await pool.query(
+      `
+        INSERT INTO users (id, email, display_name, created_at)
+        VALUES ($1, $2, $3, $4)
+      `,
+      [
+        financeUserId,
+        "pricing-finance@example.com",
+        "Pricing Finance",
+        new Date("2026-03-10T08:00:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO organizations (id, name, slug, account_capabilities, created_at)
+        VALUES ($1, $2, $3, $4, $5),
+               ($6, $7, $8, $9, $10)
+      `,
+      [
+        providerOrganizationId,
+        "Pricing Provider Org",
+        "pricing-provider-org",
+        ["provider"],
+        new Date("2026-03-10T08:00:00.000Z"),
+        buyerOrganizationId,
+        "Pricing Buyer Org",
+        "pricing-buyer-org",
+        ["buyer"],
+        new Date("2026-03-10T08:00:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO provider_nodes (
+          id,
+          organization_id,
+          machine_id,
+          label,
+          runtime,
+          region,
+          hostname,
+          trust_tier,
+          health_state,
+          driver_version,
+          enrolled_at
+        )
+        VALUES
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11),
+          ($12, $2, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+      `,
+      [
+        firstNodeId,
+        providerOrganizationId,
+        "pricing-node-0001",
+        "Pricing Node One",
+        "linux",
+        "eu-central-1",
+        "pricing-node-01.internal",
+        "t1_vetted",
+        "healthy",
+        "550.54.14",
+        new Date("2026-03-10T08:10:00.000Z"),
+        secondNodeId,
+        "pricing-node-0002",
+        "Pricing Node Two",
+        "linux",
+        "us-east-1",
+        "pricing-node-02.internal",
+        "t1_vetted",
+        "healthy",
+        "550.54.14",
+        new Date("2026-03-10T08:11:00.000Z")
+      ]
+    );
+
+    await repository.appendLedgerTransaction(
+      LedgerTransaction.record({
+        organizationId: buyerOrganizationId,
+        transactionType: "job_settlement",
+        reference: "pricing-job-1",
+        createdByUserId: financeUserId,
+        occurredAt: new Date("2026-03-09T10:00:00.000Z"),
+        postings: [
+          LedgerPosting.create({
+            accountCode: "customer_prepaid_cash_liability",
+            direction: "debit",
+            amount: UsdAmount.parse("50.00"),
+            organizationId: buyerOrganizationId
+          }),
+          LedgerPosting.create({
+            accountCode: "provider_payable",
+            direction: "credit",
+            amount: UsdAmount.parse("42.00"),
+            organizationId: providerOrganizationId
+          }),
+          LedgerPosting.create({
+            accountCode: "platform_revenue",
+            direction: "credit",
+            amount: UsdAmount.parse("6.00")
+          }),
+          LedgerPosting.create({
+            accountCode: "risk_reserve",
+            direction: "credit",
+            amount: UsdAmount.parse("2.00"),
+            organizationId: providerOrganizationId
+          })
+        ]
+      })
+    );
+
+    await pool.query(
+      `
+        INSERT INTO placement_decision_logs (
+          id,
+          organization_id,
+          environment,
+          gpu_class,
+          min_vram_gb,
+          region,
+          minimum_trust_tier,
+          max_price_usd_per_hour,
+          approved_model_alias,
+          candidate_count,
+          selected_provider_node_id,
+          selected_provider_organization_id,
+          selection_score,
+          price_performance_score,
+          warm_cache_matched,
+          rejection_reason,
+          created_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+        )
+      `,
+      [
+        decisionLogId,
+        buyerOrganizationId,
+        "development",
+        "NVIDIA A100",
+        80,
+        "eu-central-1",
+        "t1_vetted",
+        10,
+        "openai/gpt-oss-120b-like",
+        2,
+        firstNodeId,
+        providerOrganizationId,
+        92.5,
+        80.1,
+        false,
+        null,
+        new Date("2026-03-09T10:15:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO gateway_usage_meter_events (
+          workload_bundle_id,
+          occurred_at,
+          customer_organization_id,
+          provider_organization_id,
+          provider_node_id,
+          environment,
+          request_kind,
+          approved_model_alias,
+          manifest_id,
+          decision_log_id,
+          batch_id,
+          batch_item_id,
+          prompt_tokens,
+          completion_tokens,
+          total_tokens,
+          latency_ms
+        )
+        VALUES
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16),
+          ($17, $18, $3, $4, $19, $6, $7, $8, $9, $10, $11, $12, $20, $21, $22, $23)
+      `,
+      [
+        "7369647a-c39d-4e5d-8b83-3bf2a813e1ec",
+        new Date("2026-03-09T10:30:00.000Z"),
+        buyerOrganizationId,
+        providerOrganizationId,
+        firstNodeId,
+        "development",
+        "chat.completions",
+        "openai/gpt-oss-120b-like",
+        "chat-gpt-oss-120b-like-v1",
+        decisionLogId,
+        null,
+        null,
+        1200,
+        1800,
+        3000,
+        240,
+        "5340c330-3ef3-403b-af0f-88c0b5d9a00b",
+        new Date("2026-03-09T12:30:00.000Z"),
+        secondNodeId,
+        800,
+        1200,
+        2000,
+        210
+      ]
+    );
+
+    await expect(
+      repository.listProviderNodeUsageTotals({
+        organizationId: OrganizationId.create(providerOrganizationId),
+        startDateInclusive: new Date("2026-03-03T00:00:00.000Z"),
+        endDateExclusive: new Date("2026-03-11T00:00:00.000Z")
+      })
+    ).resolves.toEqual([
+      {
+        providerNodeId: secondNodeId,
+        totalTokens: 2000
+      },
+      {
+        providerNodeId: firstNodeId,
+        totalTokens: 3000
+      }
+    ]);
+
+    await expect(
+      repository.getProviderSettlementEconomics({
+        organizationId: OrganizationId.create(providerOrganizationId),
+        startDateInclusive: new Date("2026-02-09T00:00:00.000Z"),
+        endDateExclusive: new Date("2026-03-11T00:00:00.000Z")
+      })
+    ).resolves.toEqual({
+      settlementCount: 1,
+      providerPayable: UsdAmount.parse("42.00"),
+      platformRevenue: UsdAmount.parse("6.00"),
+      reserveHoldback: UsdAmount.parse("2.00")
+    });
+  });
 });

@@ -47,7 +47,7 @@ export class PlacementRequirements {
 
     if (
       !providerTrustTierMeetsMinimum(
-        summary.node.trustTier,
+        summary.node.attestation.effectiveTrustTier,
         this.minimumTrustTier
       )
     ) {

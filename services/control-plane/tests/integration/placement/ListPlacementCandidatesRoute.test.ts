@@ -53,6 +53,12 @@ const enrollProviderNodeResponseSchema = z.object({
   })
 });
 
+const recordBenchmarkResponseSchema = z.object({
+  benchmark: z.object({
+    id: z.uuid()
+  })
+});
+
 const placementPreviewResponseSchema = z.object({
   candidates: z.array(
     z.object({
@@ -62,6 +68,17 @@ const placementPreviewResponseSchema = z.object({
       region: z.string(),
       trustTier: z.enum(["t0_community", "t1_vetted", "t2_attested"]),
       priceFloorUsdPerHour: z.number(),
+      score: z.number(),
+      scoreBreakdown: z.object({
+        pricePerformanceScore: z.number(),
+        warmCacheMultiplier: z.number(),
+        benchmarkThroughputTokensPerSecond: z.number(),
+        priceFloorUsdPerHour: z.number()
+      }),
+      warmCache: z.object({
+        matched: z.boolean(),
+        expiresAt: z.iso.datetime().nullable()
+      }),
       matchedGpu: z.object({
         model: z.string(),
         vramGb: z.number(),
@@ -166,6 +183,16 @@ describe("placement candidate route", () => {
       getProviderNodeDetailUseCase: new GetProviderNodeDetailUseCase(
         repository
       ),
+      issueProviderNodeAttestationChallengeUseCase: {
+        execute: () =>
+          Promise.reject(
+            new Error("unused provider attestation challenge path")
+          )
+      },
+      submitProviderNodeAttestationUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider attestation submit path"))
+      },
       upsertProviderNodeRoutingProfileUseCase:
         new UpsertProviderNodeRoutingProfileUseCase(
           repository,
@@ -318,6 +345,34 @@ describe("placement candidate route", () => {
       matchedNodeA.nodeId,
       5.75
     );
+    await recordBenchmark(
+      app,
+      firstProvider.organizationId,
+      firstProviderApiKey,
+      expensiveNode.nodeId,
+      702.4
+    );
+    await recordBenchmark(
+      app,
+      secondProvider.organizationId,
+      secondProviderApiKey,
+      matchedNodeB.nodeId,
+      731.2
+    );
+    await recordBenchmark(
+      app,
+      firstProvider.organizationId,
+      firstProviderApiKey,
+      unmatchedRegionNode.nodeId,
+      715.7
+    );
+    await recordBenchmark(
+      app,
+      firstProvider.organizationId,
+      firstProviderApiKey,
+      matchedNodeA.nodeId,
+      744.6
+    );
 
     const response = await app.inject({
       method: "POST",
@@ -341,11 +396,11 @@ describe("placement candidate route", () => {
       payload.candidates.map(
         (candidate: { providerNodeId: string }) => candidate.providerNodeId
       )
-    ).toEqual(
-      [matchedNodeA.nodeId, matchedNodeB.nodeId].sort((left, right) =>
-        left.localeCompare(right)
-      )
+    ).toEqual([matchedNodeA.nodeId, matchedNodeB.nodeId]);
+    expect(payload.candidates[0]?.score).toBeGreaterThan(
+      payload.candidates[1]?.score ?? 0
     );
+    expect(payload.candidates[0]?.warmCache.matched).toBe(false);
     for (const candidate of payload.candidates) {
       expect(candidate.region).toBe("eu-central-1");
       expect(candidate.trustTier).toBe("t1_vetted");
@@ -489,4 +544,27 @@ async function upsertRoutingProfile(
   });
 
   expect(response.statusCode).toBe(200);
+}
+
+async function recordBenchmark(
+  app: ReturnType<typeof buildApp>,
+  organizationId: string,
+  apiKey: string,
+  providerNodeId: string,
+  throughputTokensPerSecond: number
+): Promise<void> {
+  const response = await app.inject({
+    method: "POST",
+    url: `/v1/organizations/${organizationId}/environments/production/provider-nodes/${providerNodeId}/benchmarks`,
+    headers: { "x-api-key": apiKey },
+    payload: {
+      gpuClass: "NVIDIA A100",
+      vramGb: 80,
+      throughputTokensPerSecond,
+      driverVersion: "550.54.14"
+    }
+  });
+
+  recordBenchmarkResponseSchema.parse(JSON.parse(response.body));
+  expect(response.statusCode).toBe(201);
 }

@@ -11,6 +11,12 @@ import {
   ProviderDashboardOrganizationNotFoundError,
   type GetProviderDashboardOverviewResponse
 } from "../../../src/application/dashboard/GetProviderDashboardOverviewUseCase.js";
+import {
+  ProviderPricingSimulatorAuthorizationError,
+  ProviderPricingSimulatorCapabilityRequiredError,
+  ProviderPricingSimulatorOrganizationNotFoundError,
+  type GetProviderPricingSimulatorResponse
+} from "../../../src/application/dashboard/GetProviderPricingSimulatorUseCase.js";
 import { buildApp } from "../../../src/interfaces/http/buildApp.js";
 
 function createApp(input: {
@@ -25,6 +31,12 @@ function createApp(input: {
       organizationId: string;
       actorUserId: string;
     }) => Promise<GetProviderDashboardOverviewResponse>;
+  };
+  getProviderPricingSimulatorUseCase?: {
+    execute: (input: {
+      organizationId: string;
+      actorUserId: string;
+    }) => Promise<GetProviderPricingSimulatorResponse>;
   };
 }) {
   return buildApp({
@@ -63,6 +75,12 @@ function createApp(input: {
       input.getConsumerDashboardOverviewUseCase,
     getProviderDashboardOverviewUseCase:
       input.getProviderDashboardOverviewUseCase,
+    ...(input.getProviderPricingSimulatorUseCase === undefined
+      ? {}
+      : {
+          getProviderPricingSimulatorUseCase:
+            input.getProviderPricingSimulatorUseCase
+        }),
     executeChatCompletionUseCase: {
       execute: () => Promise.reject(new Error("unused gateway path"))
     },
@@ -86,6 +104,14 @@ function createApp(input: {
     getProviderNodeDetailUseCase: {
       execute: () =>
         Promise.reject(new Error("unused provider node detail path"))
+    },
+    issueProviderNodeAttestationChallengeUseCase: {
+      execute: () =>
+        Promise.reject(new Error("unused provider attestation challenge path"))
+    },
+    submitProviderNodeAttestationUseCase: {
+      execute: () =>
+        Promise.reject(new Error("unused provider attestation submit path"))
     },
     upsertProviderNodeRoutingProfileUseCase: {
       execute: () =>
@@ -153,6 +179,57 @@ describe("dashboard routes", () => {
         actorRole: "finance",
         earningsTrend: [],
         estimatedUtilizationTrend: []
+      }
+    });
+  });
+
+  it("returns the provider pricing simulator snapshot", async () => {
+    const app = createApp({
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      },
+      getProviderPricingSimulatorUseCase: {
+        execute: () =>
+          Promise.resolve({
+            simulator: {
+              organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
+              actorRole: "finance",
+              simulatableNodeCount: 1,
+              unavailableNodeCount: 1,
+              assumptions: {
+                usageObservationDays: 7,
+                settlementEconomicsDays: 30,
+                projectionDays: 30,
+                netProjectionStatus: "available",
+                settlementCount: 2,
+                realizedPlatformFeePercent: 12,
+                realizedReserveHoldbackPercent: 4,
+                realizedWithdrawablePercent: 80
+              },
+              nodes: []
+            }
+          })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/provider-pricing-simulator?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      simulator: {
+        simulatableNodeCount: 1,
+        unavailableNodeCount: 1,
+        assumptions: {
+          netProjectionStatus: "available"
+        }
       }
     });
   });
@@ -250,6 +327,91 @@ describe("dashboard routes", () => {
     expect(response.statusCode).toBe(403);
     expect(response.json()).toMatchObject({
       error: "PROVIDER_DASHBOARD_CAPABILITY_REQUIRED"
+    });
+  });
+
+  it("maps pricing simulator missing organizations to 404", async () => {
+    const app = createApp({
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      },
+      getProviderPricingSimulatorUseCase: {
+        execute: () =>
+          Promise.reject(
+            new ProviderPricingSimulatorOrganizationNotFoundError(
+              "87057cb0-e0ca-4095-9f25-dd8103408b18"
+            )
+          )
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/provider-pricing-simulator?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      error: "PROVIDER_PRICING_SIMULATOR_ORGANIZATION_NOT_FOUND"
+    });
+  });
+
+  it("maps pricing simulator capability failures to 403", async () => {
+    const app = createApp({
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      },
+      getProviderPricingSimulatorUseCase: {
+        execute: () =>
+          Promise.reject(new ProviderPricingSimulatorCapabilityRequiredError())
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/provider-pricing-simulator?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: "PROVIDER_PRICING_SIMULATOR_CAPABILITY_REQUIRED"
+    });
+  });
+
+  it("maps pricing simulator authorization failures to 403", async () => {
+    const app = createApp({
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      },
+      getProviderPricingSimulatorUseCase: {
+        execute: () =>
+          Promise.reject(new ProviderPricingSimulatorAuthorizationError())
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/provider-pricing-simulator?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: "PROVIDER_PRICING_SIMULATOR_AUTHORIZATION_ERROR"
     });
   });
 

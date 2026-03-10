@@ -2,6 +2,7 @@ import type { AccountCapability } from "../../domain/identity/AccountCapability.
 import { OrganizationId } from "../../domain/identity/OrganizationId.js";
 import type { PlacementCandidateSnapshot } from "../../domain/placement/PlacementCandidate.js";
 import { PlacementRequirements } from "../../domain/placement/PlacementRequirements.js";
+import { PlacementScoringPolicy } from "../../config/PlacementScoringPolicy.js";
 import { PlacementCandidatePlanner } from "./PlacementCandidatePlanner.js";
 import type { PlacementCandidateRepository } from "./ports/PlacementCandidateRepository.js";
 
@@ -12,6 +13,7 @@ export interface ListPlacementCandidatesRequest {
   region: string;
   minimumTrustTier: string;
   maxPriceUsdPerHour: number;
+  approvedModelAlias?: string;
 }
 
 export interface ListPlacementCandidatesResponse {
@@ -37,7 +39,9 @@ export class PlacementBuyerCapabilityRequiredError extends Error {
 export class ListPlacementCandidatesUseCase {
   public constructor(
     private readonly repository: PlacementCandidateRepository,
-    private readonly planner: PlacementCandidatePlanner = new PlacementCandidatePlanner()
+    private readonly planner: PlacementCandidatePlanner = new PlacementCandidatePlanner(
+      PlacementScoringPolicy.createDefault()
+    )
   ) {}
 
   public async execute(
@@ -64,7 +68,8 @@ export class ListPlacementCandidatesUseCase {
     });
     const candidates = this.planner.buildCandidates(
       requirements,
-      await this.repository.listPlacementProviderInventorySummaries()
+      await this.repository.listPlacementProviderInventorySummaries(),
+      request.approvedModelAlias
     );
 
     return {

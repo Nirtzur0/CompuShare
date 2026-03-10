@@ -17,6 +17,13 @@ export interface ExecuteChatCompletionRequest {
 
 export type ExecuteChatCompletionResponse = GatewayChatCompletionResponse;
 
+export interface AuthenticatedGatewayExecutionContext {
+  organizationId: string;
+  environment: "development" | "staging" | "production";
+  apiKeyId: string;
+  issuedByUserId: string;
+}
+
 export class GatewayAuthorizationHeaderError extends Error {
   public constructor() {
     super("An Authorization: Bearer <org_api_key> header is required.");
@@ -53,33 +60,49 @@ export class ExecuteChatCompletionUseCase {
     const authentication = await this.authenticateGatewayApiKeyUseCase.execute({
       secret: apiKeySecret
     });
+    return this.executeAuthenticated({
+      context: {
+        organizationId: authentication.scope.organizationId,
+        environment: authentication.scope.environment,
+        apiKeyId: authentication.apiKey.id,
+        issuedByUserId: authentication.apiKey.issuedByUserId
+      },
+      request: request.request
+    });
+  }
+
+  public async executeAuthenticated(input: {
+    context: AuthenticatedGatewayExecutionContext;
+    request: GatewayChatCompletionRequest;
+  }): Promise<ExecuteChatCompletionResponse> {
     const manifest = this.approvedChatModelCatalog.findByAlias(
-      request.request.model
+      input.request.model
     );
 
     if (manifest === null) {
-      throw new ApprovedChatModelNotFoundError(request.request.model);
+      throw new ApprovedChatModelNotFoundError(input.request.model);
     }
 
     const placement = await this.resolveSyncPlacementUseCase.execute({
-      organizationId: authentication.scope.organizationId,
-      environment: authentication.scope.environment,
+      organizationId: input.context.organizationId,
+      environment: input.context.environment,
+      approvedModelAlias: manifest.alias,
       ...manifest.placementRequirements.toSnapshot()
     });
     const signedBundle =
       await this.prepareSignedChatWorkloadBundleUseCase.execute({
-        actorUserId: authentication.apiKey.issuedByUserId,
-        customerOrganizationId: authentication.scope.organizationId,
-        environment: authentication.scope.environment,
+        actorUserId: input.context.issuedByUserId,
+        customerOrganizationId: input.context.organizationId,
+        environment: input.context.environment,
         manifest,
         providerNodeId: placement.selection.providerNodeId,
-        request: request.request
+        request: input.request
       });
     const upstreamRequestStartedAt = this.latencyClock();
     const response = await this.gatewayUpstreamClient.dispatchChatCompletion({
       endpointUrl: placement.selection.endpointUrl,
       request: {
-        ...request.request,
+        ...input.request,
         model: manifest.providerModelId
       },
       headers: {
@@ -100,11 +123,11 @@ export class ExecuteChatCompletionUseCase {
     await this.recordGatewayUsageMeterEventUseCase.execute({
       workloadBundleId: signedBundle.bundle.id,
       occurredAt: occurredAt.toISOString(),
-      actorUserId: authentication.apiKey.issuedByUserId,
-      customerOrganizationId: authentication.scope.organizationId,
+      actorUserId: input.context.issuedByUserId,
+      customerOrganizationId: input.context.organizationId,
       providerOrganizationId: placement.selection.providerOrganizationId,
       providerNodeId: placement.selection.providerNodeId,
-      environment: authentication.scope.environment,
+      environment: input.context.environment,
       approvedModelAlias: manifest.alias,
       manifestId: manifest.manifestId,
       decisionLogId: placement.decisionLogId,
@@ -117,11 +140,11 @@ export class ExecuteChatCompletionUseCase {
     await this.auditLog.record({
       eventName: "gateway.chat_completion.forwarded",
       occurredAt: occurredAt.toISOString(),
-      actorUserId: authentication.apiKey.issuedByUserId,
-      organizationId: authentication.scope.organizationId,
+      actorUserId: input.context.issuedByUserId,
+      organizationId: input.context.organizationId,
       metadata: {
-        apiKeyId: authentication.apiKey.id,
-        environment: authentication.scope.environment,
+        apiKeyId: input.context.apiKeyId,
+        environment: input.context.environment,
         approvedModelAlias: manifest.alias,
         manifestId: manifest.manifestId,
         providerModelId: manifest.providerModelId,

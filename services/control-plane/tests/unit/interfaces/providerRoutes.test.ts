@@ -26,6 +26,13 @@ import {
   ProviderNodeDetailOrganizationNotFoundError
 } from "../../../src/application/provider/GetProviderNodeDetailUseCase.js";
 import {
+  ProviderNodeAttestationCapabilityRequiredError,
+  ProviderNodeAttestationNodeNotFoundError,
+  ProviderNodeAttestationOrganizationNotFoundError,
+  ProviderNodeAttestationRuntimeUnsupportedError,
+  type IssueProviderNodeAttestationChallengeUseCase
+} from "../../../src/application/provider/IssueProviderNodeAttestationChallengeUseCase.js";
+import {
   ProviderBenchmarkHistoryCapabilityRequiredError,
   ProviderBenchmarkHistoryNodeNotFoundError,
   ProviderBenchmarkHistoryOrganizationNotFoundError,
@@ -44,10 +51,24 @@ import {
   type UpsertProviderNodeRoutingProfileUseCase
 } from "../../../src/application/provider/UpsertProviderNodeRoutingProfileUseCase.js";
 import {
+  ProviderRoutingStateApprovedModelAliasNotFoundError,
+  ProviderRoutingStateCapabilityRequiredError,
+  ProviderRoutingStateNodeNotFoundError,
+  ProviderRoutingStateOrganizationNotFoundError,
+  type ReplaceProviderNodeRoutingStateUseCase
+} from "../../../src/application/provider/ReplaceProviderNodeRoutingStateUseCase.js";
+import {
   ProviderInventoryCapabilityRequiredError,
   ProviderInventoryOrganizationNotFoundError,
   type ListProviderInventoryUseCase
 } from "../../../src/application/provider/ListProviderInventoryUseCase.js";
+import {
+  ProviderNodeAttestationChallengeAlreadyUsedError,
+  ProviderNodeAttestationChallengeExpiredError,
+  ProviderNodeAttestationChallengeNotFoundError,
+  ProviderNodeAttestationVerificationFailedError,
+  type SubmitProviderNodeAttestationUseCase
+} from "../../../src/application/provider/SubmitProviderNodeAttestationUseCase.js";
 import { WorkloadBundleAdmissionRejectedError } from "../../../src/application/workload/WorkloadBundleAdmissionRejectedError.js";
 import { DomainValidationError } from "../../../src/domain/identity/DomainValidationError.js";
 import { buildApp } from "../../../src/interfaces/http/buildApp.js";
@@ -67,7 +88,13 @@ function buildProviderApp(
   upsertRoutingProfileExecute: UpsertProviderNodeRoutingProfileUseCase["execute"] = () =>
     Promise.reject(new Error("unused routing profile path")),
   admitRuntimeExecute: AdmitProviderRuntimeWorkloadBundleUseCase["execute"] = () =>
-    Promise.reject(new Error("unused runtime admission path"))
+    Promise.reject(new Error("unused runtime admission path")),
+  issueAttestationChallengeExecute: IssueProviderNodeAttestationChallengeUseCase["execute"] = () =>
+    Promise.reject(new Error("unused attestation challenge path")),
+  submitAttestationExecute: SubmitProviderNodeAttestationUseCase["execute"] = () =>
+    Promise.reject(new Error("unused attestation submit path")),
+  replaceRoutingStateExecute: ReplaceProviderNodeRoutingStateUseCase["execute"] = () =>
+    Promise.reject(new Error("unused routing state path"))
 ): FastifyInstance {
   return buildApp({
     createOrganizationUseCase: {
@@ -109,6 +136,15 @@ function buildProviderApp(
     getProviderNodeDetailUseCase: {
       execute: getProviderNodeDetailExecute
     } as unknown as GetProviderNodeDetailUseCase,
+    issueProviderNodeAttestationChallengeUseCase: {
+      execute: issueAttestationChallengeExecute
+    } as unknown as IssueProviderNodeAttestationChallengeUseCase,
+    submitProviderNodeAttestationUseCase: {
+      execute: submitAttestationExecute
+    } as unknown as SubmitProviderNodeAttestationUseCase,
+    replaceProviderNodeRoutingStateUseCase: {
+      execute: replaceRoutingStateExecute
+    } as unknown as ReplaceProviderNodeRoutingStateUseCase,
     upsertProviderNodeRoutingProfileUseCase: {
       execute: upsertRoutingProfileExecute
     } as unknown as UpsertProviderNodeRoutingProfileUseCase,
@@ -251,6 +287,849 @@ describe("provider routes", () => {
     });
 
     expect(response.statusCode).toBe(400);
+  });
+
+  it("issues attestation challenges for linux provider nodes", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () =>
+        Promise.resolve({
+          challenge: {
+            id: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+            nonce: "abcdefghijklmnopqrstuvwxyzABCDEFG123456",
+            expiresAt: "2026-03-10T10:05:00.000Z"
+          }
+        })
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestation-challenges",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+  });
+
+  it("maps attestation challenge runtime conflicts to 409", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () =>
+        Promise.reject(
+          new ProviderNodeAttestationRuntimeUnsupportedError("kubernetes")
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestation-challenges",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_NODE_RUNTIME_UNSUPPORTED"
+    });
+  });
+
+  it("requires an API key header for attestation challenge issuance", async () => {
+    const app = buildProviderApp(() => Promise.reject(new Error("unused")));
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestation-challenges"
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "ORGANIZATION_API_KEY_MISSING"
+    });
+  });
+
+  it("maps attestation challenge organization misses to 404", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () =>
+        Promise.reject(
+          new ProviderNodeAttestationOrganizationNotFoundError(
+            "0d6b1676-f112-41d6-9f98-27277a0dba79"
+          )
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestation-challenges",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_ORGANIZATION_NOT_FOUND"
+    });
+  });
+
+  it("maps attestation challenge node misses to 404", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () =>
+        Promise.reject(
+          new ProviderNodeAttestationNodeNotFoundError(
+            "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43"
+          )
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestation-challenges",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_NODE_NOT_FOUND"
+    });
+  });
+
+  it("maps attestation challenge capability failures to 403", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () => Promise.reject(new ProviderNodeAttestationCapabilityRequiredError())
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestation-challenges",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_CAPABILITY_REQUIRED"
+    });
+  });
+
+  it("verifies attestation submissions", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () => Promise.reject(new Error("unused challenge path")),
+      () =>
+        Promise.resolve({
+          attestation: {
+            status: "verified",
+            effectiveTrustTier: "t2_attested",
+            lastAttestedAt: "2026-03-10T10:01:00.000Z",
+            attestationExpiresAt: "2026-03-11T10:01:00.000Z",
+            attestationType: "tpm_quote_v1"
+          }
+        })
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestations",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        challengeId: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+        attestationType: "tpm_quote_v1",
+        attestationPublicKeyPem:
+          "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV1qvH9x7mJYg7AQz2dJ0Y2Qq4YQJ2v+V\n4+0YB9nHkBqgV0m2Fq7V3r8fC7r7i8D1P8Q8h2Dk0bTtQ6dW5n8QWw==\n-----END PUBLIC KEY-----",
+        quoteBase64:
+          "ZXlKeGRXOTBaU0k2SW5aaGJIVmxJaXdpY0dOeVJHbG5aWE4wU0dWNElnb2lNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNU0o5",
+        pcrValues: {
+          "0": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        secureBootEnabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+  });
+
+  it("maps attestation verification failures to 422", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () => Promise.reject(new Error("unused challenge path")),
+      () =>
+        Promise.reject(
+          new ProviderNodeAttestationVerificationFailedError(
+            "signature_invalid"
+          )
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestations",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        challengeId: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+        attestationType: "tpm_quote_v1",
+        attestationPublicKeyPem:
+          "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV1qvH9x7mJYg7AQz2dJ0Y2Qq4YQJ2v+V\n4+0YB9nHkBqgV0m2Fq7V3r8fC7r7i8D1P8Q8h2Dk0bTtQ6dW5n8QWw==\n-----END PUBLIC KEY-----",
+        quoteBase64:
+          "ZXlKeGRXOTBaU0k2SW5aaGJIVmxJaXdpY0dOeVJHbG5aWE4wU0dWNElnb2lNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNU0o5",
+        pcrValues: {
+          "0": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        secureBootEnabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_NODE_ATTESTATION_VERIFICATION_FAILED"
+    });
+  });
+
+  it("requires an API key header for attestation submissions", async () => {
+    const app = buildProviderApp(() => Promise.reject(new Error("unused")));
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestations",
+      payload: {
+        challengeId: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+        attestationType: "tpm_quote_v1",
+        attestationPublicKeyPem:
+          "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV1qvH9x7mJYg7AQz2dJ0Y2Qq4YQJ2v+V\n4+0YB9nHkBqgV0m2Fq7V3r8fC7r7i8D1P8Q8h2Dk0bTtQ6dW5n8QWw==\n-----END PUBLIC KEY-----",
+        quoteBase64:
+          "ZXlKeGRXOTBaU0k2SW5aaGJIVmxJaXdpY0dOeVJHbG5aWE4wU0dWNElnb2lNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNU0o5",
+        pcrValues: {
+          "0": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        secureBootEnabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "ORGANIZATION_API_KEY_MISSING"
+    });
+  });
+
+  it("rejects invalid attestation submission payloads", async () => {
+    const app = buildProviderApp(() => Promise.reject(new Error("unused")));
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestations",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        challengeId: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+        attestationType: "tpm_quote_v1",
+        attestationPublicKeyPem: "short",
+        quoteBase64: "too-short",
+        pcrValues: {},
+        secureBootEnabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "VALIDATION_ERROR"
+    });
+  });
+
+  it("maps attestation challenge misses to 404", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () => Promise.reject(new Error("unused challenge path")),
+      () =>
+        Promise.reject(
+          new ProviderNodeAttestationChallengeNotFoundError(
+            "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43"
+          )
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestations",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        challengeId: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+        attestationType: "tpm_quote_v1",
+        attestationPublicKeyPem:
+          "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV1qvH9x7mJYg7AQz2dJ0Y2Qq4YQJ2v+V\n4+0YB9nHkBqgV0m2Fq7V3r8fC7r7i8D1P8Q8h2Dk0bTtQ6dW5n8QWw==\n-----END PUBLIC KEY-----",
+        quoteBase64:
+          "ZXlKeGRXOTBaU0k2SW5aaGJIVmxJaXdpY0dOeVJHbG5aWE4wU0dWNElnb2lNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNU0o5",
+        pcrValues: {
+          "0": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        secureBootEnabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_NODE_ATTESTATION_CHALLENGE_NOT_FOUND"
+    });
+  });
+
+  it("maps used attestation challenges to 409", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () => Promise.reject(new Error("unused challenge path")),
+      () =>
+        Promise.reject(
+          new ProviderNodeAttestationChallengeAlreadyUsedError(
+            "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43"
+          )
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestations",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        challengeId: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+        attestationType: "tpm_quote_v1",
+        attestationPublicKeyPem:
+          "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV1qvH9x7mJYg7AQz2dJ0Y2Qq4YQJ2v+V\n4+0YB9nHkBqgV0m2Fq7V3r8fC7r7i8D1P8Q8h2Dk0bTtQ6dW5n8QWw==\n-----END PUBLIC KEY-----",
+        quoteBase64:
+          "ZXlKeGRXOTBaU0k2SW5aaGJIVmxJaXdpY0dOeVJHbG5aWE4wU0dWNElnb2lNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNU0o5",
+        pcrValues: {
+          "0": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        secureBootEnabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_NODE_ATTESTATION_CHALLENGE_ALREADY_USED"
+    });
+  });
+
+  it("maps attestation submission organization misses to 404", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () => Promise.reject(new Error("unused challenge path")),
+      () =>
+        Promise.reject(
+          new ProviderNodeAttestationOrganizationNotFoundError(
+            "0d6b1676-f112-41d6-9f98-27277a0dba79"
+          )
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestations",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        challengeId: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+        attestationType: "tpm_quote_v1",
+        attestationPublicKeyPem:
+          "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV1qvH9x7mJYg7AQz2dJ0Y2Qq4YQJ2v+V\n4+0YB9nHkBqgV0m2Fq7V3r8fC7r7i8D1P8Q8h2Dk0bTtQ6dW5n8QWw==\n-----END PUBLIC KEY-----",
+        quoteBase64:
+          "ZXlKeGRXOTBaU0k2SW5aaGJIVmxJaXdpY0dOeVJHbG5aWE4wU0dWNElnb2lNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNU0o5",
+        pcrValues: {
+          "0": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        secureBootEnabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_ORGANIZATION_NOT_FOUND"
+    });
+  });
+
+  it("maps attestation submission capability failures to 403", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () => Promise.reject(new Error("unused challenge path")),
+      () => Promise.reject(new ProviderNodeAttestationCapabilityRequiredError())
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestations",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        challengeId: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+        attestationType: "tpm_quote_v1",
+        attestationPublicKeyPem:
+          "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV1qvH9x7mJYg7AQz2dJ0Y2Qq4YQJ2v+V\n4+0YB9nHkBqgV0m2Fq7V3r8fC7r7i8D1P8Q8h2Dk0bTtQ6dW5n8QWw==\n-----END PUBLIC KEY-----",
+        quoteBase64:
+          "ZXlKeGRXOTBaU0k2SW5aaGJIVmxJaXdpY0dOeVJHbG5aWE4wU0dWNElnb2lNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNU0o5",
+        pcrValues: {
+          "0": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        secureBootEnabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_CAPABILITY_REQUIRED"
+    });
+  });
+
+  it("maps attestation submission node misses to 404", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () => Promise.reject(new Error("unused challenge path")),
+      () =>
+        Promise.reject(
+          new ProviderNodeAttestationNodeNotFoundError(
+            "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43"
+          )
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestations",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        challengeId: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+        attestationType: "tpm_quote_v1",
+        attestationPublicKeyPem:
+          "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV1qvH9x7mJYg7AQz2dJ0Y2Qq4YQJ2v+V\n4+0YB9nHkBqgV0m2Fq7V3r8fC7r7i8D1P8Q8h2Dk0bTtQ6dW5n8QWw==\n-----END PUBLIC KEY-----",
+        quoteBase64:
+          "ZXlKeGRXOTBaU0k2SW5aaGJIVmxJaXdpY0dOeVJHbG5aWE4wU0dWNElnb2lNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNU0o5",
+        pcrValues: {
+          "0": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        secureBootEnabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_NODE_NOT_FOUND"
+    });
+  });
+
+  it("maps attestation submission runtime conflicts to 409", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () => Promise.reject(new Error("unused challenge path")),
+      () =>
+        Promise.reject(
+          new ProviderNodeAttestationRuntimeUnsupportedError("kubernetes")
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestations",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        challengeId: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+        attestationType: "tpm_quote_v1",
+        attestationPublicKeyPem:
+          "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV1qvH9x7mJYg7AQz2dJ0Y2Qq4YQJ2v+V\n4+0YB9nHkBqgV0m2Fq7V3r8fC7r7i8D1P8Q8h2Dk0bTtQ6dW5n8QWw==\n-----END PUBLIC KEY-----",
+        quoteBase64:
+          "ZXlKeGRXOTBaU0k2SW5aaGJIVmxJaXdpY0dOeVJHbG5aWE4wU0dWNElnb2lNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNU0o5",
+        pcrValues: {
+          "0": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        secureBootEnabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_NODE_RUNTIME_UNSUPPORTED"
+    });
+  });
+
+  it("maps expired attestation challenges to 409", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused history path")),
+      () => Promise.reject(new Error("unused detail path")),
+      () => Promise.reject(new Error("unused routing path")),
+      () => Promise.reject(new Error("unused runtime admission path")),
+      () => Promise.reject(new Error("unused challenge path")),
+      () =>
+        Promise.reject(
+          new ProviderNodeAttestationChallengeExpiredError(
+            "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43"
+          )
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/attestations",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        challengeId: "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43",
+        attestationType: "tpm_quote_v1",
+        attestationPublicKeyPem:
+          "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV1qvH9x7mJYg7AQz2dJ0Y2Qq4YQJ2v+V\n4+0YB9nHkBqgV0m2Fq7V3r8fC7r7i8D1P8Q8h2Dk0bTtQ6dW5n8QWw==\n-----END PUBLIC KEY-----",
+        quoteBase64:
+          "ZXlKeGRXOTBaU0k2SW5aaGJIVmxJaXdpY0dOeVJHbG5aWE4wU0dWNElnb2lNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNVEV4TVRFeE1URXhNU0o5",
+        pcrValues: {
+          "0": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        secureBootEnabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body)).toMatchObject({
+      error: "PROVIDER_NODE_ATTESTATION_CHALLENGE_EXPIRED"
+    });
   });
 
   it("maps provider inventory capability failures to 403", async () => {
@@ -2094,5 +2973,530 @@ describe("provider routes", () => {
     });
 
     expect(response.statusCode).toBe(404);
+  });
+
+  it("maps runtime admission organization and capability failures", async () => {
+    const organizationMissingApp = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T19:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused benchmark history path")),
+      () => Promise.reject(new Error("unused node detail path")),
+      () => Promise.reject(new Error("unused routing profile path")),
+      () =>
+        Promise.reject(
+          new ProviderNodeDetailOrganizationNotFoundError(
+            "0d6b1676-f112-41d6-9f98-27277a0dba79"
+          )
+        )
+    );
+    const capabilityApp = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T19:00:00.000Z"
+          }
+        }),
+      () => Promise.reject(new Error("unused benchmark path")),
+      () => Promise.reject(new Error("unused inventory path")),
+      () => Promise.reject(new Error("unused benchmark history path")),
+      () => Promise.reject(new Error("unused node detail path")),
+      () => Promise.reject(new Error("unused routing profile path")),
+      () => Promise.reject(new ProviderNodeDetailCapabilityRequiredError())
+    );
+    apps.push(organizationMissingApp, capabilityApp);
+
+    const organizationResponse = await organizationMissingApp.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/runtime-admissions",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        expectedCustomerOrganizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
+        signedBundle: {
+          bundle: {
+            id: "a1f6d551-4896-4e11-95b8-d8eed13192af",
+            modelManifestId: "chat-gpt-oss-120b-like-v1",
+            imageDigest:
+              "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            runtimeConfig: {
+              requestKind: "chat.completions",
+              streamingEnabled: false,
+              maxTokens: 1024,
+              temperature: null,
+              topP: null
+            },
+            networkPolicy: "provider-endpoint-only",
+            maxRuntimeSeconds: 120,
+            customerOrganizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
+            sensitivityClass: "standard_business",
+            createdAt: "2026-03-09T20:00:00.000Z"
+          },
+          signature:
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          signatureKeyId: "local-hmac-v1"
+        }
+      }
+    });
+    const capabilityResponse = await capabilityApp.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/runtime-admissions",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        expectedCustomerOrganizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
+        signedBundle: {
+          bundle: {
+            id: "a1f6d551-4896-4e11-95b8-d8eed13192af",
+            modelManifestId: "chat-gpt-oss-120b-like-v1",
+            imageDigest:
+              "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            runtimeConfig: {
+              requestKind: "chat.completions",
+              streamingEnabled: false,
+              maxTokens: 1024,
+              temperature: null,
+              topP: null
+            },
+            networkPolicy: "provider-endpoint-only",
+            maxRuntimeSeconds: 120,
+            customerOrganizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
+            sensitivityClass: "standard_business",
+            createdAt: "2026-03-09T20:00:00.000Z"
+          },
+          signature:
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          signatureKeyId: "local-hmac-v1"
+        }
+      }
+    });
+
+    expect(organizationResponse.statusCode).toBe(404);
+    expect(organizationResponse.json()).toMatchObject({
+      error: "PROVIDER_ORGANIZATION_NOT_FOUND"
+    });
+    expect(capabilityResponse.statusCode).toBe(403);
+    expect(capabilityResponse.json()).toMatchObject({
+      error: "PROVIDER_CAPABILITY_REQUIRED"
+    });
+  });
+
+  it("replaces provider routing state", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T19:00:00.000Z"
+          }
+        }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () =>
+        Promise.resolve({
+          routingState: {
+            warmModelAliases: [
+              {
+                approvedModelAlias: "openai/gpt-oss-120b-like",
+                declaredAt: "2026-03-09T20:00:00.000Z",
+                expiresAt: "2026-03-09T20:10:00.000Z"
+              }
+            ]
+          }
+        })
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/routing-state",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        warmModelAliases: [
+          {
+            approvedModelAlias: "openai/gpt-oss-120b-like",
+            expiresAt: "2026-03-09T20:10:00.000Z"
+          }
+        ]
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      routingState: {
+        warmModelAliases: [
+          {
+            approvedModelAlias: "openai/gpt-oss-120b-like"
+          }
+        ]
+      }
+    });
+  });
+
+  it("maps missing approved aliases during routing-state replacement to 404", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T19:00:00.000Z"
+          }
+        }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () =>
+        Promise.reject(
+          new ProviderRoutingStateApprovedModelAliasNotFoundError(
+            "openai/not-approved"
+          )
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/routing-state",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        warmModelAliases: [
+          {
+            approvedModelAlias: "openai/not-approved",
+            expiresAt: "2026-03-09T20:10:00.000Z"
+          }
+        ]
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      error: "APPROVED_MODEL_ALIAS_NOT_FOUND"
+    });
+  });
+
+  it("requires an API key header for provider routing-state replacement", async () => {
+    const app = buildProviderApp(() => Promise.reject(new Error("unused")));
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/routing-state",
+      payload: {
+        warmModelAliases: []
+      }
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("rejects invalid routing-state payloads", async () => {
+    const app = buildProviderApp(() => Promise.reject(new Error("unused")));
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/routing-state",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        warmModelAliases: [
+          {
+            approvedModelAlias: "ok",
+            expiresAt: "not-a-datetime"
+          }
+        ]
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "VALIDATION_ERROR"
+    });
+  });
+
+  it("maps routing-state domain validation failures to 400", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T19:00:00.000Z"
+          }
+        }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () =>
+        Promise.reject(
+          new DomainValidationError(
+            "Warm model state expiry cannot exceed 15 minutes from declaration."
+          )
+        )
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/routing-state",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        warmModelAliases: [
+          {
+            approvedModelAlias: "openai/gpt-oss-120b-like",
+            expiresAt: "2026-03-09T20:20:00.000Z"
+          }
+        ]
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "DOMAIN_VALIDATION_ERROR"
+    });
+  });
+
+  it("maps routing-state buyer capability failures to 403", async () => {
+    const app = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T19:00:00.000Z"
+          }
+        }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => Promise.reject(new ProviderRoutingStateCapabilityRequiredError())
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/routing-state",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        warmModelAliases: [
+          {
+            approvedModelAlias: "openai/gpt-oss-120b-like",
+            expiresAt: "2026-03-09T20:10:00.000Z"
+          }
+        ]
+      }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: "PROVIDER_CAPABILITY_REQUIRED"
+    });
+  });
+
+  it("maps routing-state organization and node lookup failures", async () => {
+    const organizationMissingApp = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T19:00:00.000Z"
+          }
+        }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () =>
+        Promise.reject(
+          new ProviderRoutingStateOrganizationNotFoundError(
+            "0d6b1676-f112-41d6-9f98-27277a0dba79"
+          )
+        )
+    );
+    const nodeMissingApp = buildProviderApp(
+      () => Promise.reject(new Error("unused enroll path")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Agent key",
+            secretPrefix: "csk_agent___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T19:00:00.000Z"
+          }
+        }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () =>
+        Promise.reject(
+          new ProviderRoutingStateNodeNotFoundError(
+            "ab3f9623-eb23-4dc8-8f15-2d84f5b48e43"
+          )
+        )
+    );
+    apps.push(organizationMissingApp, nodeMissingApp);
+
+    const organizationResponse = await organizationMissingApp.inject({
+      method: "PUT",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/routing-state",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        warmModelAliases: [
+          {
+            approvedModelAlias: "openai/gpt-oss-120b-like",
+            expiresAt: "2026-03-09T20:10:00.000Z"
+          }
+        ]
+      }
+    });
+    const nodeResponse = await nodeMissingApp.inject({
+      method: "PUT",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/provider-nodes/ab3f9623-eb23-4dc8-8f15-2d84f5b48e43/routing-state",
+      headers: {
+        "x-api-key": "csk_agent_secret_value_000000"
+      },
+      payload: {
+        warmModelAliases: [
+          {
+            approvedModelAlias: "openai/gpt-oss-120b-like",
+            expiresAt: "2026-03-09T20:10:00.000Z"
+          }
+        ]
+      }
+    });
+
+    expect(organizationResponse.statusCode).toBe(404);
+    expect(organizationResponse.json()).toMatchObject({
+      error: "PROVIDER_ORGANIZATION_NOT_FOUND"
+    });
+    expect(nodeResponse.statusCode).toBe(404);
+    expect(nodeResponse.json()).toMatchObject({
+      error: "PROVIDER_NODE_NOT_FOUND"
+    });
   });
 });

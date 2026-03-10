@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { GetConsumerDashboardOverviewUseCase } from "../../application/dashboard/GetConsumerDashboardOverviewUseCase.js";
+import type { GetProviderPricingSimulatorUseCase } from "../../application/dashboard/GetProviderPricingSimulatorUseCase.js";
 import {
   ConsumerDashboardAuthorizationError,
   ConsumerDashboardCapabilityRequiredError,
@@ -12,6 +13,11 @@ import {
   ProviderDashboardCapabilityRequiredError,
   ProviderDashboardOrganizationNotFoundError
 } from "../../application/dashboard/GetProviderDashboardOverviewUseCase.js";
+import {
+  ProviderPricingSimulatorAuthorizationError,
+  ProviderPricingSimulatorCapabilityRequiredError,
+  ProviderPricingSimulatorOrganizationNotFoundError
+} from "../../application/dashboard/GetProviderPricingSimulatorUseCase.js";
 
 const providerDashboardParamsSchema = z.object({
   organizationId: z.uuid()
@@ -29,6 +35,10 @@ export function registerDashboardRoutes(
   >,
   getProviderDashboardOverviewUseCase: Pick<
     GetProviderDashboardOverviewUseCase,
+    "execute"
+  >,
+  getProviderPricingSimulatorUseCase?: Pick<
+    GetProviderPricingSimulatorUseCase,
     "execute"
   >
 ): void {
@@ -135,6 +145,68 @@ export function registerDashboardRoutes(
         if (error instanceof ProviderDashboardAuthorizationError) {
           return reply.status(403).send({
             error: "PROVIDER_DASHBOARD_AUTHORIZATION_ERROR",
+            message: error.message
+          });
+        }
+
+        throw error;
+      }
+    }
+  );
+
+  if (getProviderPricingSimulatorUseCase === undefined) {
+    return;
+  }
+
+  app.get(
+    "/v1/organizations/:organizationId/dashboard/provider-pricing-simulator",
+    async (request, reply) => {
+      const parsedParams = providerDashboardParamsSchema.safeParse(
+        request.params
+      );
+      const parsedQuery = providerDashboardQuerySchema.safeParse(request.query);
+
+      if (!parsedParams.success) {
+        return reply.status(400).send({
+          error: "VALIDATION_ERROR",
+          message: parsedParams.error.issues[0]?.message ?? "Invalid request."
+        });
+      }
+
+      if (!parsedQuery.success) {
+        return reply.status(400).send({
+          error: "VALIDATION_ERROR",
+          message: parsedQuery.error.issues[0]?.message ?? "Invalid request."
+        });
+      }
+
+      try {
+        const response = await getProviderPricingSimulatorUseCase.execute({
+          organizationId: parsedParams.data.organizationId,
+          actorUserId: parsedQuery.data.actorUserId
+        });
+
+        return await reply.status(200).send(response);
+      } catch (error) {
+        if (
+          error instanceof ProviderPricingSimulatorOrganizationNotFoundError
+        ) {
+          return reply.status(404).send({
+            error: "PROVIDER_PRICING_SIMULATOR_ORGANIZATION_NOT_FOUND",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderPricingSimulatorCapabilityRequiredError) {
+          return reply.status(403).send({
+            error: "PROVIDER_PRICING_SIMULATOR_CAPABILITY_REQUIRED",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderPricingSimulatorAuthorizationError) {
+          return reply.status(403).send({
+            error: "PROVIDER_PRICING_SIMULATOR_AUTHORIZATION_ERROR",
             message: error.message
           });
         }

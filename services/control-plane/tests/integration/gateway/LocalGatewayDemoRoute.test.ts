@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type InjectOptions } from "fastify";
 import { newDb } from "pg-mem";
 import type { Pool } from "pg";
 import { SeedRunnableAlphaDemo } from "../../../src/application/demo/SeedRunnableAlphaDemo.js";
@@ -14,10 +14,12 @@ import { RecordCustomerChargeUseCase } from "../../../src/application/ledger/Rec
 import { RecordGatewayUsageMeterEventUseCase } from "../../../src/application/metering/RecordGatewayUsageMeterEventUseCase.js";
 import { ResolveSyncPlacementUseCase } from "../../../src/application/placement/ResolveSyncPlacementUseCase.js";
 import { EnrollProviderNodeUseCase } from "../../../src/application/provider/EnrollProviderNodeUseCase.js";
+import { ReplaceProviderNodeRoutingStateUseCase } from "../../../src/application/provider/ReplaceProviderNodeRoutingStateUseCase.js";
 import { RecordProviderBenchmarkUseCase } from "../../../src/application/provider/RecordProviderBenchmarkUseCase.js";
 import { UpsertProviderNodeRoutingProfileUseCase } from "../../../src/application/provider/UpsertProviderNodeRoutingProfileUseCase.js";
 import { PrepareSignedChatWorkloadBundleUseCase } from "../../../src/application/workload/PrepareSignedChatWorkloadBundleUseCase.js";
 import { VerifySignedWorkloadBundleAdmissionUseCase } from "../../../src/application/workload/VerifySignedWorkloadBundleAdmissionUseCase.js";
+import { PlacementScoringPolicy } from "../../../src/config/PlacementScoringPolicy.js";
 import { InMemoryApprovedChatModelCatalog } from "../../../src/infrastructure/gateway/InMemoryApprovedChatModelCatalog.js";
 import { FetchGatewayUpstreamClient } from "../../../src/infrastructure/gateway/FetchGatewayUpstreamClient.js";
 import { StructuredConsoleAuditLog } from "../../../src/infrastructure/observability/StructuredConsoleAuditLog.js";
@@ -80,29 +82,18 @@ describe("local gateway demo route", () => {
       };
     });
 
-    await providerRuntimeApp.listen({ host: "127.0.0.1", port: 0 });
-    const providerRuntimeAddress = providerRuntimeApp.server.address();
-
-    if (
-      providerRuntimeAddress === null ||
-      typeof providerRuntimeAddress === "string"
-    ) {
-      throw new Error(
-        "Provider runtime test server did not expose an address."
-      );
-    }
-
-    const repository = new PostgresIdentityRepository(pool);
+    const clock = () => new Date("2026-03-17T09:00:00.000Z");
+    const repository = new PostgresIdentityRepository(pool, clock);
     const auditLog = new StructuredConsoleAuditLog();
     const approvedChatModelCatalog =
       InMemoryApprovedChatModelCatalog.createDefault();
+    const placementScoringPolicy = PlacementScoringPolicy.createDefault();
     const workloadBundleSignatureService =
       new HmacWorkloadBundleSignatureService(
         "local-workload-signing-secret-1234567890",
         "local-hmac-v1"
       );
     let apiKeySequence = 0;
-    const clock = () => new Date("2026-03-17T09:00:00.000Z");
     const seedUseCase = new SeedRunnableAlphaDemo(
       new CreateOrganizationUseCase(repository, auditLog, clock),
       new IssueOrganizationApiKeyUseCase(
@@ -117,6 +108,13 @@ describe("local gateway demo route", () => {
       ),
       new EnrollProviderNodeUseCase(repository, auditLog, clock),
       new RecordProviderBenchmarkUseCase(repository, auditLog, clock),
+      new ReplaceProviderNodeRoutingStateUseCase(
+        repository,
+        approvedChatModelCatalog,
+        placementScoringPolicy,
+        auditLog,
+        clock
+      ),
       new UpsertProviderNodeRoutingProfileUseCase(repository, auditLog, clock),
       new RecordCustomerChargeUseCase(repository, auditLog, clock),
       new RecordCompletedJobSettlementUseCase(repository, auditLog, clock),
@@ -128,7 +126,7 @@ describe("local gateway demo route", () => {
     );
     const seededDemo = await seedUseCase.execute({
       controlPlaneBaseUrl: "http://127.0.0.1:3100",
-      providerRuntimeBaseUrl: `http://127.0.0.1:${String(providerRuntimeAddress.port)}`,
+      providerRuntimeBaseUrl: "http://localhost:3200",
       dashboardBaseUrl: "http://127.0.0.1:3000",
       seedTag: "gateway-demo"
     });
@@ -156,7 +154,34 @@ describe("local gateway demo route", () => {
         verifySignedWorkloadBundleAdmissionUseCase,
         () => new Date("2026-03-17T09:04:00.000Z")
       ),
-      new FetchGatewayUpstreamClient(),
+      new FetchGatewayUpstreamClient(async (input, init) => {
+        const url =
+          typeof input === "string"
+            ? new URL(input)
+            : input instanceof URL
+              ? input
+              : new URL(input.url);
+        const headers = Object.fromEntries(
+          new Headers(init?.headers).entries()
+        ) as Record<string, string>;
+        const payload = typeof init?.body === "string" ? init.body : undefined;
+        const injectOptions: InjectOptions = {
+          method: "POST",
+          url: `${url.pathname}${url.search}`,
+          headers
+        };
+
+        if (payload !== undefined) {
+          injectOptions.payload = payload;
+        }
+
+        const response = await providerRuntimeApp.inject(injectOptions);
+
+        return new Response(response.body, {
+          status: response.statusCode,
+          headers: response.headers as unknown as HeadersInit
+        });
+      }),
       new RecordGatewayUsageMeterEventUseCase(
         repository,
         auditLog,
@@ -231,6 +256,16 @@ describe("local gateway demo route", () => {
         getProviderNodeDetailUseCase: {
           execute: () =>
             Promise.reject(new Error("unused provider node detail path"))
+        },
+        issueProviderNodeAttestationChallengeUseCase: {
+          execute: () =>
+            Promise.reject(
+              new Error("unused provider attestation challenge path")
+            )
+        },
+        submitProviderNodeAttestationUseCase: {
+          execute: () =>
+            Promise.reject(new Error("unused provider attestation submit path"))
         },
         upsertProviderNodeRoutingProfileUseCase: {
           execute: () =>

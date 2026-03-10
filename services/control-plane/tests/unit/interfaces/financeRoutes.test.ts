@@ -90,6 +90,14 @@ function buildFinanceApp(
     getProviderNodeDetailUseCase: {
       execute: () => Promise.reject(new Error("unused provider detail path"))
     } as unknown as GetProviderNodeDetailUseCase,
+    issueProviderNodeAttestationChallengeUseCase: {
+      execute: () =>
+        Promise.reject(new Error("unused provider attestation challenge path"))
+    },
+    submitProviderNodeAttestationUseCase: {
+      execute: () =>
+        Promise.reject(new Error("unused provider attestation submit path"))
+    },
     upsertProviderNodeRoutingProfileUseCase: {
       execute: () =>
         Promise.reject(new Error("unused provider routing profile path"))

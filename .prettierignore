@@ -1,0 +1,4 @@
+coverage
+apps/dashboard/coverage
+services/control-plane/coverage
+services/provider-runtime/coverage

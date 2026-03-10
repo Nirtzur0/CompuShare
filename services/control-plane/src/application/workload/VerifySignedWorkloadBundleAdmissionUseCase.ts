@@ -1,4 +1,5 @@
 import type { ApprovedChatModelCatalog } from "../gateway/ports/ApprovedChatModelCatalog.js";
+import type { ApprovedEmbeddingModelCatalog } from "../gateway/ports/ApprovedEmbeddingModelCatalog.js";
 import type { AuditLog } from "../identity/ports/AuditLog.js";
 import type { ProviderRuntime } from "../../domain/provider/ProviderRuntime.js";
 import type { SignedWorkloadBundle } from "../../domain/workload/SignedWorkloadBundle.js";
@@ -29,14 +30,19 @@ export class VerifySignedWorkloadBundleAdmissionUseCase {
     private readonly signatureService: WorkloadBundleSignatureService,
     private readonly approvedChatModelCatalog: ApprovedChatModelCatalog,
     private readonly auditLog: AuditLog,
-    private readonly clock: () => Date = () => new Date()
+    private readonly clock: () => Date = () => new Date(),
+    private readonly approvedEmbeddingModelCatalog: ApprovedEmbeddingModelCatalog = {
+      findByAlias: () => null,
+      findByManifestId: () => null,
+      listAll: () => []
+    }
   ) {}
 
   public async execute(
     request: VerifySignedWorkloadBundleAdmissionRequest
   ): Promise<VerifySignedWorkloadBundleAdmissionResponse> {
     const occurredAt = this.clock();
-    const manifest = this.approvedChatModelCatalog.findByManifestId(
+    const manifest = this.findApprovedManifest(
       request.signedBundle.bundle.modelManifestId
     );
     const rejectionReason = this.getRejectionReason(
@@ -97,7 +103,10 @@ export class VerifySignedWorkloadBundleAdmissionUseCase {
   private getRejectionReason(
     signedBundle: SignedWorkloadBundle,
     expectedCustomerOrganizationId: string,
-    manifest: ReturnType<ApprovedChatModelCatalog["findByManifestId"]> | null,
+    manifest:
+      | ReturnType<ApprovedChatModelCatalog["findByManifestId"]>
+      | ReturnType<ApprovedEmbeddingModelCatalog["findByManifestId"]>
+      | null,
     providerNodeRuntime: ProviderRuntime | null | undefined
   ): string | null {
     if (manifest === null) {
@@ -142,5 +151,12 @@ export class VerifySignedWorkloadBundleAdmissionUseCase {
     }
 
     return null;
+  }
+
+  private findApprovedManifest(manifestId: string) {
+    return (
+      this.approvedChatModelCatalog.findByManifestId(manifestId) ??
+      this.approvedEmbeddingModelCatalog.findByManifestId(manifestId)
+    );
   }
 }

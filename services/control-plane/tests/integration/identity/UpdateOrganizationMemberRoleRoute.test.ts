@@ -121,6 +121,16 @@ describe("PATCH /v1/organizations/:organizationId/members/:memberUserId/role", (
       getProviderNodeDetailUseCase: new GetProviderNodeDetailUseCase(
         repository
       ),
+      issueProviderNodeAttestationChallengeUseCase: {
+        execute: () =>
+          Promise.reject(
+            new Error("unused provider attestation challenge path")
+          )
+      },
+      submitProviderNodeAttestationUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider attestation submit path"))
+      },
       upsertProviderNodeRoutingProfileUseCase:
         new UpsertProviderNodeRoutingProfileUseCase(repository, auditLog),
       listProviderBenchmarkHistoryUseCase:
@@ -297,6 +307,16 @@ describe("PATCH /v1/organizations/:organizationId/members/:memberUserId/role", (
       getProviderNodeDetailUseCase: new GetProviderNodeDetailUseCase(
         repository
       ),
+      issueProviderNodeAttestationChallengeUseCase: {
+        execute: () =>
+          Promise.reject(
+            new Error("unused provider attestation challenge path")
+          )
+      },
+      submitProviderNodeAttestationUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider attestation submit path"))
+      },
       upsertProviderNodeRoutingProfileUseCase:
         new UpsertProviderNodeRoutingProfileUseCase(repository, auditLog),
       listProviderBenchmarkHistoryUseCase:

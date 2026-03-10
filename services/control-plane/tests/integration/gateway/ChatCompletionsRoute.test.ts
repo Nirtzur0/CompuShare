@@ -16,6 +16,7 @@ import { VerifySignedWorkloadBundleAdmissionUseCase } from "../../../src/applica
 import type {
   DispatchChatCompletionRequest,
   GatewayChatCompletionResponse,
+  GatewayEmbeddingResponse,
   GatewayUpstreamClient
 } from "../../../src/application/gateway/ports/GatewayUpstreamClient.js";
 import { ListPlacementCandidatesUseCase } from "../../../src/application/placement/ListPlacementCandidatesUseCase.js";
@@ -56,6 +57,12 @@ const enrollProviderNodeResponseSchema = z.object({
   })
 });
 
+const recordBenchmarkResponseSchema = z.object({
+  benchmark: z.object({
+    id: z.uuid()
+  })
+});
+
 const forwardedWorkloadBundleSchema = z.object({
   modelManifestId: z.string(),
   customerOrganizationId: z.uuid(),
@@ -91,6 +98,10 @@ class FakeGatewayUpstreamClient implements GatewayUpstreamClient {
         total_tokens: 30
       }
     });
+  }
+
+  public dispatchEmbedding(): Promise<GatewayEmbeddingResponse> {
+    return Promise.reject(new Error("unused embedding path"));
   }
 }
 
@@ -215,6 +226,16 @@ describe("POST /v1/chat/completions", () => {
       getProviderNodeDetailUseCase: new GetProviderNodeDetailUseCase(
         repository
       ),
+      issueProviderNodeAttestationChallengeUseCase: {
+        execute: () =>
+          Promise.reject(
+            new Error("unused provider attestation challenge path")
+          )
+      },
+      submitProviderNodeAttestationUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider attestation submit path"))
+      },
       upsertProviderNodeRoutingProfileUseCase:
         new UpsertProviderNodeRoutingProfileUseCase(
           repository,
@@ -285,6 +306,20 @@ describe("POST /v1/chat/completions", () => {
         priceFloorUsdPerHour: 5.25
       }
     });
+    const benchmarkResponse = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${provider.organizationId}/environments/production/provider-nodes/${providerNodeId}/benchmarks`,
+      headers: { "x-api-key": providerApiKey },
+      payload: {
+        gpuClass: "NVIDIA A100",
+        vramGb: 80,
+        throughputTokensPerSecond: 742.5,
+        driverVersion: "550.54.14"
+      }
+    });
+
+    expect(benchmarkResponse.statusCode).toBe(201);
+    recordBenchmarkResponseSchema.parse(JSON.parse(benchmarkResponse.body));
 
     const response = await app.inject({
       method: "POST",

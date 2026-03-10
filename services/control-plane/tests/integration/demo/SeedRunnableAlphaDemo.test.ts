@@ -4,15 +4,22 @@ import type { Pool } from "pg";
 import { SeedRunnableAlphaDemo } from "../../../src/application/demo/SeedRunnableAlphaDemo.js";
 import { GetConsumerDashboardOverviewUseCase } from "../../../src/application/dashboard/GetConsumerDashboardOverviewUseCase.js";
 import { GetProviderDashboardOverviewUseCase } from "../../../src/application/dashboard/GetProviderDashboardOverviewUseCase.js";
+import { GetProviderPricingSimulatorUseCase } from "../../../src/application/dashboard/GetProviderPricingSimulatorUseCase.js";
+import { AuthenticateOrganizationApiKeyUseCase } from "../../../src/application/identity/AuthenticateOrganizationApiKeyUseCase.js";
 import { RecordCompletedJobSettlementUseCase } from "../../../src/application/ledger/RecordCompletedJobSettlementUseCase.js";
 import { RecordCustomerChargeUseCase } from "../../../src/application/ledger/RecordCustomerChargeUseCase.js";
 import { CreateOrganizationUseCase } from "../../../src/application/identity/CreateOrganizationUseCase.js";
 import { IssueOrganizationApiKeyUseCase } from "../../../src/application/identity/IssueOrganizationApiKeyUseCase.js";
 import { RecordGatewayUsageMeterEventUseCase } from "../../../src/application/metering/RecordGatewayUsageMeterEventUseCase.js";
+import { ListPlacementCandidatesUseCase } from "../../../src/application/placement/ListPlacementCandidatesUseCase.js";
+import { PlacementCandidatePlanner } from "../../../src/application/placement/PlacementCandidatePlanner.js";
 import { ResolveSyncPlacementUseCase } from "../../../src/application/placement/ResolveSyncPlacementUseCase.js";
 import { EnrollProviderNodeUseCase } from "../../../src/application/provider/EnrollProviderNodeUseCase.js";
+import { ReplaceProviderNodeRoutingStateUseCase } from "../../../src/application/provider/ReplaceProviderNodeRoutingStateUseCase.js";
 import { RecordProviderBenchmarkUseCase } from "../../../src/application/provider/RecordProviderBenchmarkUseCase.js";
 import { UpsertProviderNodeRoutingProfileUseCase } from "../../../src/application/provider/UpsertProviderNodeRoutingProfileUseCase.js";
+import { PlacementScoringPolicy } from "../../../src/config/PlacementScoringPolicy.js";
+import { InMemoryApprovedChatModelCatalog } from "../../../src/infrastructure/gateway/InMemoryApprovedChatModelCatalog.js";
 import { StructuredConsoleAuditLog } from "../../../src/infrastructure/observability/StructuredConsoleAuditLog.js";
 import { IdentitySchemaInitializer } from "../../../src/infrastructure/persistence/postgres/IdentitySchemaInitializer.js";
 import { PostgresIdentityRepository } from "../../../src/infrastructure/persistence/postgres/PostgresIdentityRepository.js";
@@ -39,10 +46,13 @@ describe("SeedRunnableAlphaDemo", () => {
   });
 
   it("seeds demo data that can be queried through the dashboard routes", async () => {
-    const repository = new PostgresIdentityRepository(pool);
-    const auditLog = new StructuredConsoleAuditLog();
-    let apiKeySequence = 0;
     const clock = () => new Date("2026-03-09T12:00:00.000Z");
+    const repository = new PostgresIdentityRepository(pool, clock);
+    const auditLog = new StructuredConsoleAuditLog();
+    const approvedChatModelCatalog =
+      InMemoryApprovedChatModelCatalog.createDefault();
+    const placementScoringPolicy = PlacementScoringPolicy.createDefault();
+    let apiKeySequence = 0;
     const seedUseCase = new SeedRunnableAlphaDemo(
       new CreateOrganizationUseCase(repository, auditLog, clock),
       new IssueOrganizationApiKeyUseCase(
@@ -55,6 +65,13 @@ describe("SeedRunnableAlphaDemo", () => {
       ),
       new EnrollProviderNodeUseCase(repository, auditLog, clock),
       new RecordProviderBenchmarkUseCase(repository, auditLog, clock),
+      new ReplaceProviderNodeRoutingStateUseCase(
+        repository,
+        approvedChatModelCatalog,
+        placementScoringPolicy,
+        auditLog,
+        clock
+      ),
       new UpsertProviderNodeRoutingProfileUseCase(repository, auditLog, clock),
       new RecordCustomerChargeUseCase(repository, auditLog, clock),
       new RecordCompletedJobSettlementUseCase(repository, auditLog, clock),
@@ -90,9 +107,8 @@ describe("SeedRunnableAlphaDemo", () => {
       issueOrganizationApiKeyUseCase: {
         execute: () => Promise.reject(new Error("unused api key issue path"))
       },
-      authenticateOrganizationApiKeyUseCase: {
-        execute: () => Promise.reject(new Error("unused api key auth path"))
-      },
+      authenticateOrganizationApiKeyUseCase:
+        new AuthenticateOrganizationApiKeyUseCase(repository, auditLog, clock),
       recordCustomerChargeUseCase: {
         execute: () => Promise.reject(new Error("unused finance charge path"))
       },
@@ -110,16 +126,20 @@ describe("SeedRunnableAlphaDemo", () => {
         new GetConsumerDashboardOverviewUseCase(repository, auditLog),
       getProviderDashboardOverviewUseCase:
         new GetProviderDashboardOverviewUseCase(repository, auditLog),
+      getProviderPricingSimulatorUseCase:
+        new GetProviderPricingSimulatorUseCase(repository, auditLog, clock),
       executeChatCompletionUseCase: {
         execute: () => Promise.reject(new Error("unused gateway path"))
       },
-      listPlacementCandidatesUseCase: {
-        execute: () => Promise.reject(new Error("unused placement path"))
-      },
-      resolveSyncPlacementUseCase: {
-        execute: () =>
-          Promise.reject(new Error("unused sync placement resolution path"))
-      },
+      listPlacementCandidatesUseCase: new ListPlacementCandidatesUseCase(
+        repository,
+        new PlacementCandidatePlanner(placementScoringPolicy, clock)
+      ),
+      resolveSyncPlacementUseCase: new ResolveSyncPlacementUseCase(
+        repository,
+        auditLog,
+        clock
+      ),
       enrollProviderNodeUseCase: {
         execute: () =>
           Promise.reject(new Error("unused provider enrollment path"))
@@ -136,6 +156,24 @@ describe("SeedRunnableAlphaDemo", () => {
         execute: () =>
           Promise.reject(new Error("unused provider node detail path"))
       },
+      issueProviderNodeAttestationChallengeUseCase: {
+        execute: () =>
+          Promise.reject(
+            new Error("unused provider attestation challenge path")
+          )
+      },
+      submitProviderNodeAttestationUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider attestation submit path"))
+      },
+      replaceProviderNodeRoutingStateUseCase:
+        new ReplaceProviderNodeRoutingStateUseCase(
+          repository,
+          approvedChatModelCatalog,
+          placementScoringPolicy,
+          auditLog,
+          clock
+        ),
       upsertProviderNodeRoutingProfileUseCase: {
         execute: () =>
           Promise.reject(new Error("unused provider routing profile path"))
@@ -158,19 +196,43 @@ describe("SeedRunnableAlphaDemo", () => {
       method: "GET",
       url: `/v1/organizations/${result.buyer.organizationId}/dashboard/consumer-overview?actorUserId=${result.buyer.actorUserId}`
     });
+    const providerPricingResponse = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${result.provider.organizationId}/dashboard/provider-pricing-simulator?actorUserId=${result.provider.actorUserId}`
+    });
+    const placementPreviewResponse = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${result.buyer.organizationId}/environments/development/placement-candidates/preview`,
+      headers: {
+        "x-api-key": result.buyer.apiKey.secret
+      },
+      payload: {
+        gpuClass: "NVIDIA A100",
+        minVramGb: 80,
+        region: "eu-central-1",
+        minimumTrustTier: "t1_vetted",
+        maxPriceUsdPerHour: 10,
+        approvedModelAlias: "openai/gpt-oss-120b-like"
+      }
+    });
 
     expect(result.buyer.dashboardUrl).toContain("/consumer?");
     expect(result.provider.dashboardUrl).toContain("/provider?");
+    expect(result.provider.pricingDashboardUrl).toContain("/provider/pricing?");
     expect(result.buyer.apiKey.secret).toContain("csk_demo_seed_secret");
     expect(result.provider.apiKey.secret).toContain("csk_demo_seed_secret");
     expect(result.provider.routingProfile.endpointUrl).toContain(
       "http://127.0.0.1:3200/v1/chat/completions?"
     );
     expect(result.gatewayDemo.curlCommand).toContain("Authorization: Bearer");
+    expect(result.embeddingDemo.curlCommand).toContain("/v1/embeddings");
+    expect(result.batchDemo.uploadCurlCommand).toContain("/v1/files");
+    expect(result.batchDemo.createCurlCommand).toContain("/v1/batches");
+    expect(result.provider.node.label).toBe("Runnable Alpha Warm Node");
     expect(providerResponse.statusCode).toBe(200);
     expect(providerResponse.json()).toMatchObject({
       overview: {
-        activeNodeCount: 1,
+        activeNodeCount: 2,
         balances: {
           pendingEarningsUsd: "42.00",
           withdrawableCashUsd: "40.00"
@@ -195,6 +257,15 @@ describe("SeedRunnableAlphaDemo", () => {
       )
     ).toBe(true);
     expect(consumerResponse.statusCode).toBe(200);
+    expect(providerPricingResponse.statusCode).toBe(200);
+    expect(providerPricingResponse.json()).toMatchObject({
+      simulator: {
+        simulatableNodeCount: 2,
+        assumptions: {
+          netProjectionStatus: "available"
+        }
+      }
+    });
     expect(consumerResponse.json()).toMatchObject({
       overview: {
         spendSummary: {
@@ -223,11 +294,34 @@ describe("SeedRunnableAlphaDemo", () => {
         (point) => point.modelAlias === "openai/gpt-oss-120b-like"
       )
     ).toBe(true);
+    expect(placementPreviewResponse.statusCode).toBe(200);
+    const placementPreviewPayload: {
+      candidates: {
+        providerNodeId: string;
+        providerNodeLabel: string;
+        warmCache: { matched: boolean };
+      }[];
+    } = placementPreviewResponse.json();
+
+    expect(placementPreviewPayload.candidates).toHaveLength(2);
+    expect(placementPreviewPayload.candidates[0]).toMatchObject({
+      providerNodeId: result.provider.node.id,
+      providerNodeLabel: "Runnable Alpha Warm Node",
+      warmCache: {
+        matched: true
+      }
+    });
   });
 
   it("rejects seed tags that normalize to fewer than four characters", async () => {
-    const repository = new PostgresIdentityRepository(pool);
+    const repository = new PostgresIdentityRepository(
+      pool,
+      () => new Date("2026-03-09T12:00:00.000Z")
+    );
     const auditLog = new StructuredConsoleAuditLog();
+    const approvedChatModelCatalog =
+      InMemoryApprovedChatModelCatalog.createDefault();
+    const placementScoringPolicy = PlacementScoringPolicy.createDefault();
     const seedUseCase = new SeedRunnableAlphaDemo(
       new CreateOrganizationUseCase(
         repository,
@@ -237,6 +331,12 @@ describe("SeedRunnableAlphaDemo", () => {
       new IssueOrganizationApiKeyUseCase(repository, repository, auditLog),
       new EnrollProviderNodeUseCase(repository, auditLog),
       new RecordProviderBenchmarkUseCase(repository, auditLog),
+      new ReplaceProviderNodeRoutingStateUseCase(
+        repository,
+        approvedChatModelCatalog,
+        placementScoringPolicy,
+        auditLog
+      ),
       new UpsertProviderNodeRoutingProfileUseCase(repository, auditLog),
       new RecordCustomerChargeUseCase(repository, auditLog),
       new RecordCompletedJobSettlementUseCase(repository, auditLog),
@@ -257,10 +357,13 @@ describe("SeedRunnableAlphaDemo", () => {
   });
 
   it("derives a stable default seed tag from the clock when one is not provided", async () => {
-    const repository = new PostgresIdentityRepository(pool);
-    const auditLog = new StructuredConsoleAuditLog();
-    let apiKeySequence = 0;
     const clock = () => new Date("2026-03-09T14:00:00.000Z");
+    const repository = new PostgresIdentityRepository(pool, clock);
+    const auditLog = new StructuredConsoleAuditLog();
+    const approvedChatModelCatalog =
+      InMemoryApprovedChatModelCatalog.createDefault();
+    const placementScoringPolicy = PlacementScoringPolicy.createDefault();
+    let apiKeySequence = 0;
     const seedUseCase = new SeedRunnableAlphaDemo(
       new CreateOrganizationUseCase(repository, auditLog, clock),
       new IssueOrganizationApiKeyUseCase(
@@ -273,6 +376,13 @@ describe("SeedRunnableAlphaDemo", () => {
       ),
       new EnrollProviderNodeUseCase(repository, auditLog, clock),
       new RecordProviderBenchmarkUseCase(repository, auditLog, clock),
+      new ReplaceProviderNodeRoutingStateUseCase(
+        repository,
+        approvedChatModelCatalog,
+        placementScoringPolicy,
+        auditLog,
+        clock
+      ),
       new UpsertProviderNodeRoutingProfileUseCase(repository, auditLog, clock),
       new RecordCustomerChargeUseCase(repository, auditLog, clock),
       new RecordCompletedJobSettlementUseCase(repository, auditLog, clock),

@@ -21,9 +21,13 @@ export interface PlacementDecisionLogSnapshot {
   organizationId: string;
   environment: OrganizationApiKeyEnvironment;
   filters: PlacementDecisionLogFiltersSnapshot;
+  approvedModelAlias: string | null;
   candidateCount: number;
   selectedProviderNodeId: string | null;
   selectedProviderOrganizationId: string | null;
+  selectionScore: number | null;
+  pricePerformanceScore: number | null;
+  warmCacheMatched: boolean | null;
   rejectionReason: PlacementDecisionRejectionReason | null;
   createdAt: string;
 }
@@ -34,9 +38,13 @@ export class PlacementDecisionLog {
     public readonly organizationId: OrganizationId,
     public readonly environment: OrganizationApiKeyEnvironment,
     public readonly filters: PlacementDecisionLogFiltersSnapshot,
+    public readonly approvedModelAlias: string | null,
     public readonly candidateCount: number,
     public readonly selectedProviderNodeId: string | null,
     public readonly selectedProviderOrganizationId: string | null,
+    public readonly selectionScore: number | null,
+    public readonly pricePerformanceScore: number | null,
+    public readonly warmCacheMatched: boolean | null,
     public readonly rejectionReason: PlacementDecisionRejectionReason | null,
     public readonly createdAt: Date
   ) {}
@@ -45,9 +53,13 @@ export class PlacementDecisionLog {
     organizationId: string;
     environment: string;
     filters: PlacementDecisionLogFiltersSnapshot;
+    approvedModelAlias: string | null;
     candidateCount: number;
     selectedProviderNodeId: string;
     selectedProviderOrganizationId: string;
+    selectionScore: number;
+    pricePerformanceScore: number;
+    warmCacheMatched: boolean;
     createdAt: Date;
   }): PlacementDecisionLog {
     this.validateCandidateCount(input.candidateCount);
@@ -63,9 +75,13 @@ export class PlacementDecisionLog {
       OrganizationId.create(input.organizationId),
       parseOrganizationApiKeyEnvironment(input.environment),
       input.filters,
+      input.approvedModelAlias,
       input.candidateCount,
       input.selectedProviderNodeId,
       input.selectedProviderOrganizationId,
+      input.selectionScore,
+      input.pricePerformanceScore,
+      input.warmCacheMatched,
       null,
       input.createdAt
     );
@@ -75,6 +91,7 @@ export class PlacementDecisionLog {
     organizationId: string;
     environment: string;
     filters: PlacementDecisionLogFiltersSnapshot;
+    approvedModelAlias: string | null;
     candidateCount: number;
     rejectionReason: PlacementDecisionRejectionReason;
     createdAt: Date;
@@ -86,7 +103,11 @@ export class PlacementDecisionLog {
       OrganizationId.create(input.organizationId),
       parseOrganizationApiKeyEnvironment(input.environment),
       input.filters,
+      input.approvedModelAlias,
       input.candidateCount,
+      null,
+      null,
+      null,
       null,
       null,
       input.rejectionReason,
@@ -100,9 +121,13 @@ export class PlacementDecisionLog {
       organizationId: this.organizationId.value,
       environment: this.environment,
       filters: this.filters,
+      approvedModelAlias: this.approvedModelAlias,
       candidateCount: this.candidateCount,
       selectedProviderNodeId: this.selectedProviderNodeId,
       selectedProviderOrganizationId: this.selectedProviderOrganizationId,
+      selectionScore: this.selectionScore,
+      pricePerformanceScore: this.pricePerformanceScore,
+      warmCacheMatched: this.warmCacheMatched,
       rejectionReason: this.rejectionReason,
       createdAt: this.createdAt.toISOString()
     };

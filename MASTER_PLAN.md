@@ -1913,12 +1913,213 @@ This service owns the first MVP control-plane slices until extraction pressure j
 
 ### Next stories (outlined, not active yet)
 
-- [ ] `E2-S2` Attestation verifier service and trust-tier upgrade path
-- [ ] `E3-S2` Warm-cache aware placement and price/performance scoring
-- [ ] `E4-S2` Embeddings and batch API support
+- [x] `E2-S2` Attestation verifier service and trust-tier upgrade path
+  - **Epic:** `E2`
+  - **Sprint:** `SPRINT-02`
+  - **Owner:** `agent`
+  - **Depends on:** `E2-S1`, `E3-S1`, `E6-S1`
+  - **Acceptance criteria:**
+    - [x] Linux provider nodes can request a control-plane attestation challenge and submit TPM-backed attestation evidence for a specific enrolled node
+    - [x] The control-plane verifies challenge freshness, quote signature continuity, and a configured PCR/Secure-Boot policy before marking the node attested
+    - [x] Successful attestation upgrades the node's effective trust tier to `t2_attested`; expired or failed attestation leaves or returns it to `t1_vetted`
+    - [x] Provider inventory/detail APIs expose attestation status, last attested time, expiry, and effective trust tier
+    - [x] Existing placement flows can now successfully require `minimumTrustTier=t2_attested` and only match currently attested nodes
+  - **KPIs:**
+    - correctness: `100%` acceptance tests pass
+    - changed-code coverage: `>= 90%`
+    - critical-path coverage: `>= 95%`
+    - type-check errors: `0`
+    - lint/format violations: `0`
+    - flaky reruns: `0 / 20`
+    - p95 attestation verification latency: `< 300 ms` excluding network transfer
+    - replay acceptance rate: `0`
+  - **Evidence:**
+    - PR: `blocked locally: workspace has no visible git repository metadata`
+    - CI: `local evidence only: pnpm --filter @compushare/control-plane typecheck && pnpm --filter @compushare/control-plane lint && pnpm --filter @compushare/control-plane test && pnpm --filter @compushare/control-plane format:check`
+    - Benchmark: `local coverage gate passed for E2-S2: 95.43% statements/lines, 90.02% branches, 97.97% functions; 83 test files and 431 tests passed`
+    - Dashboard: `provider inventory/detail attestation fields + t2_attested placement filtering`
+    - ADR: `none`
+  - **Done criteria:** challenge issuance and attestation submission are live, effective trust-tier routing is enforced, provider inventory/detail reads expose attestation state, and control-plane quality gates are green.
+- [x] `E3-S2` Warm-cache aware placement and price/performance scoring
+  - **Epic:** `E3`
+  - **Sprint:** `SPRINT-02`
+  - **Owner:** `agent`
+  - **Depends on:** `E2-S2`, `E3-S1`, `E4-S1`
+  - **Acceptance criteria:**
+    - [x] Providers can publish warm-model soft routing state for approved model aliases through a provider-authenticated API without changing static routing-profile data
+    - [x] Placement preview and sync routes return scored candidates ordered by benchmark throughput-per-dollar, with an additive warm-cache multiplier when an approved model alias matches an unexpired warm declaration
+    - [x] Sync placement excludes unhealthy nodes and nodes without a latest benchmark from scored eligibility, while preserving existing hard filters and deterministic tie-breakers
+    - [x] Gateway `/v1/chat/completions` passes the resolved approved model alias into sync placement so scored routing is used on the real request path
+    - [x] Runnable alpha seed data creates at least two eligible provider nodes with distinct benchmark/price/warm-state inputs so scored routing is observable and testable locally
+  - **KPIs:**
+    - correctness: `100%` acceptance tests pass
+    - changed-code coverage: `>= 90%`
+    - critical-path coverage: `>= 95%`
+    - type-check errors: `0`
+    - lint/format violations: `0`
+    - flaky reruns: `0 / 20`
+    - p95 added routing overhead: `< 30 ms`
+    - placement decision-log write error rate: `0`
+  - **Evidence:**
+    - PR: `blocked locally: workspace has no visible git repository metadata`
+    - CI: `local evidence only: pnpm --filter @compushare/control-plane lint && pnpm --filter @compushare/control-plane typecheck && pnpm --filter @compushare/control-plane format:check && pnpm --filter @compushare/control-plane test`
+    - Benchmark: `local coverage gate passed for E3-S2: 95.59% statements/lines, 90.21% branches, 97.89% functions; 87 test files and 459 tests passed`
+    - Dashboard: `README-documented preview placement curl + seeded multi-node warm/cache scoring demo`
+    - ADR: `none`
+  - **Done criteria:** provider warm-model state is persisted and surfaced through inventory reads, placement preview and sync selection are score-driven and deterministic, gateway alias-aware routing uses the scored path, local demo seed data exercises the scoring logic, and quality gates are green.
+- [x] `E4-S2` Embeddings and batch API support
+  - **Epic:** `E4`
+  - **Sprint:** `SPRINT-02`
+  - **Owner:** `agent`
+  - **Depends on:** `E3-S2`, `E4-S1`, `E5-S1d`, `E6-S1d`
+  - **References reviewed:**
+    - [OpenAI embeddings API reference](https://platform.openai.com/docs/api-reference/embeddings)
+    - [OpenAI batch API reference](https://platform.openai.com/docs/api-reference/batch)
+    - [vLLM documentation](https://docs.vllm.ai/)
+    - [Hugging Face Text Embeddings Inference docs](https://huggingface.co/docs/text-embeddings-inference/index)
+  - **Acceptance criteria:**
+    - [x] Sync `POST /v1/embeddings` is live with gateway bearer auth, approved embedding aliases, signed embedding workload bundles, runtime admission, metering, and OpenAI-compatible responses
+    - [x] OpenAI-style files and batch lifecycle APIs are live for `/v1/chat/completions` and `/v1/embeddings`, with Postgres-backed input/output/error files and persisted batch/job-item state
+    - [x] Batch worker execution uses the same real chat and embeddings gateway use cases as sync execution, including placement, workload signing, runtime admission, metering, and audit logging
+    - [x] Local alpha demo docs and seed output include embeddings and batch examples, and the full workspace quality gates pass
+  - **KPIs:**
+    - correctness: `100%` acceptance tests pass
+    - changed-code coverage: `>= 90%`
+    - critical-path coverage: `>= 95%`
+    - type-check errors: `0`
+    - lint/format violations: `0`
+    - flaky reruns: `0 / 20`
+    - p95 sync embeddings added gateway overhead: `< 40 ms`
+    - p95 batch item scheduler overhead: `< 75 ms`
+    - batch state transition write error rate: `0`
+  - **Evidence:**
+    - PR: `blocked locally: workspace has no visible git repository metadata`
+    - CI: `local evidence only: pnpm lint && pnpm typecheck && pnpm test && pnpm format:check`
+    - Benchmark: `control-plane: 98 files / 507 tests / 94.56% lines-statements / 90.11% branches / 96.74% functions; provider-runtime: 5 files / 37 tests / 100% lines-statements / 90.81% branches / 94.11% functions; dashboard: 8 files / 11 tests / 100% lines-statements / 95.00% branches / 100% functions`
+    - Dashboard: `README embeddings curl + files/batches workflow + batch worker startup documented`
+    - ADR: `none`
+  - **Done criteria:** embeddings and batch are live end-to-end through the control-plane and provider runtime, batch execution uses the same real gateway path as sync requests, seed/demo output documents runnable embeddings and batch flows, and workspace quality gates are green.
 - [ ] `E5-S2` Stripe Connect onboarding and payout runbook
-- [ ] `E6-S2` Fraud graph and wash-trading detector
-- [ ] `E7-S2` Pricing strategy simulator for providers
+  - **Epic:** `E5`
+  - **Sprint:** `SPRINT-02`
+  - **Owner:** `agent`
+  - **Depends on:** `E5-S1`, `ADR-0005`, `ADR-0010`
+  - **Acceptance criteria:**
+    - [x] Provider orgs can create and resume Stripe Connect onboarding
+      - [x] Provider finance members can request Stripe Connect Express onboarding links
+      - [x] Existing provider payout accounts are reused and refreshed instead of recreated
+    - [x] Provider finance members can read current payout-account readiness and payout availability
+      - [x] `GET /v1/organizations/:organizationId/finance/provider-payout-accounts/current?actorUserId=...` returns synced readiness flags and due requirements
+      - [x] `GET /v1/organizations/:organizationId/finance/provider-payout-availability?actorUserId=...` returns provider-org scoped withdrawable and eligible payout balances
+      - [x] The existing buyer-scoped staged payout export remains an internal finance handoff view and is not the Stripe payout execution source of truth
+    - [x] Finance operator can execute a Stripe payout run against payout-ready provider balances
+      - [x] `pnpm --filter @compushare/control-plane finance:payout:run --environment=development [--provider-organization-id=<uuid>] [--dry-run=false]` is implemented
+      - [x] Payout execution persists run and disbursement state with idempotent payout keys
+    - [x] Webhook reconciliation updates payout/account state deterministically
+      - [x] `POST /v1/webhooks/stripe/connect` verifies Stripe webhook signatures against the raw body
+      - [x] `account.updated`, `capability.updated`, `payout.paid`, `payout.failed`, and `payout.canceled` reconcile idempotently
+    - [ ] Sandbox evidence exists for at least one connected account onboarding and one successful payout run
+  - **Implementation slices:**
+    - [x] `E5-S2a` Provider payout account onboarding and status sync
+    - [x] `E5-S2b` Stripe-backed payout execution runbook and webhook reconciliation
+    - [ ] `E5-S2c` Sandbox and staging acceptance evidence
+  - **KPIs:**
+    - correctness: `100%` acceptance tests pass
+    - changed-code coverage: `>= 90%`
+    - critical-path coverage: `>= 95%`
+    - type-check errors: `0`
+    - lint/format violations: `0`
+    - flaky reruns: `0 / 20`
+    - payout-run duplicate execution rate: `0`
+    - webhook signature verification false-accept rate: `0`
+    - sandbox payout success rate: `100%` on acceptance fixture
+  - **Evidence:**
+    - PR: `blocked locally: workspace has no visible git repository metadata`
+    - CI: `local evidence only: pnpm lint && pnpm typecheck && pnpm test && pnpm format:check`
+    - Benchmark: `control-plane local payout-path evidence on 2026-03-10: 102 test files / 551 tests / 92.19% lines-statements / 90.09% branches / 93.54% functions`
+    - Dashboard: `README Stripe Connect sandbox onboarding, Connect webhook forwarding, and payout runbook documented`
+    - ADR: `ADR-0005`, `ADR-0010`
+  - **Failure analysis (only if needed):**
+    - root cause: `A live sandbox execution attempt on 2026-03-10 remains blocked before onboarding because the local workspace has no services/control-plane/.env, no usable STRIPE_* variables in process environment, and no Stripe CLI auth config at ~/.config/stripe/config.toml. A direct stripe login attempt now prompts for an API key, so authenticated sandbox account access and funded test balance are still missing.`
+    - redesign decision: `Keep the real Stripe Connect implementation, provider-org payout availability read model, CLI payout execution path, and webhook reconciliation in place; defer only the external evidence slice.`
+    - next action: `Deferred until Stripe sandbox access is available again. Then create services/control-plane/.env with STRIPE_SECRET_KEY, STRIPE_CONNECT_RETURN_URL_BASE, and STRIPE_CONNECT_REFRESH_URL_BASE, start stripe listen --forward-connect-to /v1/webhooks/stripe/connect to obtain STRIPE_WEBHOOK_SECRET, complete one funded sandbox onboarding + payout run, and record the connected account ID, payout/disbursement ID, webhook event IDs, and rerun idempotency evidence before closing E5-S2 and E5-S2c.`
+  - **Done criteria:** provider onboarding/status APIs, payout-run CLI, and webhook reconciliation are implemented with green workspace gates, and live sandbox evidence for one successful onboarding + payout run is recorded.
+- [x] `E6-S2` Fraud graph and wash-trading detector
+  - **Epic:** `E6`
+  - **Sprint:** `SPRINT-02`
+  - **Owner:** `agent`
+  - **Depends on:** `E5-S1`, `E5-S1d`, `ADR-0008`
+  - **References reviewed:**
+    - [Stripe Radar](https://docs.stripe.com/radar)
+    - [Stripe Radar for Platforms](https://docs.stripe.com/connect/risk-management/risk-tooling)
+    - [Stripe connected account reserves](https://docs.stripe.com/connect/connected-account-reserves)
+    - [Stripe fraud prevention rules](https://docs.stripe.com/radar/rules)
+    - [SEFraud: Graph-based Self-Explainable Fraud Detection](https://arxiv.org/abs/2406.11389)
+  - **Acceptance criteria:**
+    - [x] Finance-authorized org members can request an org-scoped fraud review scan for the last `7-90` days through `GET /v1/organizations/:organizationId/risk/fraud-review-alerts?actorUserId=...&lookbackDays=...`
+    - [x] The detector builds deterministic buyer/provider counterparty edges from completed job settlements, gateway usage meter events, and shared organization memberships without using prompts or outputs
+    - [x] The response returns explainable alerts for `self_settlement`, `shared_member_settlement`, `settlement_without_usage`, and `counterparty_concentration`, including severity and evidence metrics
+    - [x] Scan results are ordered deterministically and every scan emits a structured audit event with alert counts and signal mix
+  - **Implementation slices:**
+    - [x] `E6-S2a` Add deterministic fraud-detection policy config plus domain models for counterparty edges and review alerts
+    - [x] `E6-S2b` Add repository-backed org-scoped fraud graph scan over settlements, metering, and shared memberships
+    - [x] `E6-S2c` Expose authenticated risk review API with audit logging and deterministic ordering
+  - **KPIs:**
+    - correctness: `100%` acceptance tests pass
+    - changed-code coverage: `>= 90%`
+    - critical-path coverage: `>= 95%`
+    - type-check errors: `0`
+    - lint/format violations: `0`
+    - flaky reruns: `0 / 20`
+    - p95 fraud scan latency on the local acceptance fixture: `< 150 ms`
+    - deterministic rerun diff for identical inputs: `0`
+    - false-negative rate on seeded alert fixtures: `0`
+  - **Evidence:**
+    - PR: `blocked locally: workspace has no visible git repository metadata`
+    - CI: `local evidence only on 2026-03-10: pnpm --filter @compushare/control-plane lint && pnpm --filter @compushare/control-plane typecheck && pnpm --filter @compushare/control-plane test`
+    - Benchmark: `control-plane on 2026-03-10: 107 test files / 573 tests / 92.36% lines-statements / 90.23% branches / 93.75% functions; fraud critical path: application/fraud 100% lines-statements / 97.67% branches / 100% functions; domain/fraud 100% lines-statements / 100% branches / 100% functions`
+    - Dashboard: `README fraud review demo curl documents GET /v1/organizations/:organizationId/risk/fraud-review-alerts and the scan path emits risk.fraud_review.scanned audit events with alert counts + signal mix`
+    - ADR: `ADR-0008`
+  - **Done criteria:** org-scoped fraud review alerts are live with deterministic signals, audit evidence exists for scans, repository-standard tests and quality gates are green, and the story is documented with current references and KPI evidence.
+- [x] `E7-S2` Pricing strategy simulator for providers
+  - **Epic:** `E7`
+  - **Sprint:** `SPRINT-02`
+  - **Owner:** `agent`
+  - **Depends on:** `E3-S1`, `E5-S1`, `E5-S1d`, `E7-S1`, `ADR-0005`
+  - **References reviewed:**
+    - [OpenRouter pricing](https://openrouter.ai/pricing)
+    - [OpenRouter provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)
+    - [Runpod pricing](https://www.runpod.io/pricing)
+    - [Together AI pricing](https://www.together.ai/pricing)
+    - [AWS EC2 Capacity Blocks for ML pricing](https://aws.amazon.com/ec2/capacityblocks/pricing/)
+    - [AWS June 2025 GPU pricing update](https://aws.amazon.com/about-aws/whats-new/2025/06/pricing-usage-model-ec2-instances-nvidia-gpus/)
+  - **Acceptance criteria:**
+    - [x] Finance-authorized provider members can load `GET /v1/organizations/:organizationId/dashboard/provider-pricing-simulator?actorUserId=...` and receive a deterministic read-only pricing simulator payload
+    - [x] The simulator returns per-node baseline inputs using current routing price floor, latest benchmark throughput, and observed `7-day` token usage with explicit unavailable reasons for nodes missing required data
+    - [x] The payload returns org-level realized settlement economics for the last `30 days` and marks net projections unavailable with `history_required` when no settlement history exists
+    - [x] The dashboard exposes `/provider/pricing?organizationId=...&actorUserId=...` and renders baseline-vs-scenario what-if comparisons for each node without mutating live routing prices
+    - [x] Every control-plane simulator read emits `dashboard.provider_pricing_simulator.viewed` with simulatable-node and history-availability counts
+  - **Implementation slices:**
+    - [x] `E7-S2a` Add provider pricing simulator control-plane read model, use case, and authenticated route
+    - [x] `E7-S2b` Add per-node provider pricing simulator dashboard screen and client-side scenario math
+    - [x] `E7-S2c` Extend runnable demo, docs, and evidence for the pricing simulator route
+  - **KPIs:**
+    - correctness: `100%` acceptance tests pass
+    - changed-code coverage: `>= 90%`
+    - critical-path coverage: `>= 95%`
+    - type-check errors: `0`
+    - lint/format violations: `0`
+    - flaky reruns: `0 / 20`
+    - p95 control-plane simulator load latency: `< 200 ms` on the seeded local acceptance fixture
+    - deterministic rerun diff for identical inputs: `0`
+    - scenario computation divergence between UI reruns with identical inputs: `0`
+  - **Evidence:**
+    - PR: `blocked locally: workspace has no visible git repository metadata`
+    - CI: `local evidence only: pnpm --filter @compushare/control-plane lint && pnpm --filter @compushare/control-plane typecheck && pnpm --filter @compushare/control-plane test && pnpm --filter @compushare/dashboard lint && pnpm --filter @compushare/dashboard typecheck && pnpm --filter @compushare/dashboard test`
+    - Benchmark: `control-plane on 2026-03-10: 110 test files / 584 tests / 92.44% lines-statements / 90.20% branches / 93.93% functions; dashboard on 2026-03-10: 12 test files / 23 tests / 99.39% lines-statements / 91.56% branches / 100% functions`
+    - Dashboard: `README provider pricing simulator demo documents GET /v1/organizations/:organizationId/dashboard/provider-pricing-simulator and the seeded alpha demo now prints a provider pricing simulator URL`
+    - ADR: `ADR-0005`
+  - **Done criteria:** provider pricing simulator data is live through the control-plane and dashboard, seeded demo output includes a pricing simulator URL, and repository-standard quality gates are green.
 - [ ] `E8-S1` Private cluster connector mode
 - [ ] `E9-S1` Subprocessor registry and DPA export pack
 
@@ -1970,12 +2171,35 @@ This service owns the first MVP control-plane slices until extraction pressure j
 ### `SPRINT-02` — Beta hardening
 **Goal:** trusted routing, payout path, stronger policy controls.
 
-- [ ] `E2-S2` Attestation verifier
-- [ ] `E3-S2` Warm-cache and price/perf routing
-- [ ] `E4-S2` Embeddings and async batch
-- [ ] `E5-S2` Live payout test in sandbox and staging
-- [ ] `E6-S2` Fraud graph + anomaly alerts
-- [ ] `E7-S2` Pricing simulator
+- [x] `E2-S2` Attestation verifier
+- [x] `E3-S2` Warm-cache and price/perf routing
+  - [x] Provider warm-model routing-state API
+  - [x] Scored placement preview and sync selection
+  - [x] Gateway alias-aware scored routing integration
+  - [x] Multi-node demo seed refresh
+- [x] `E4-S2` Embeddings and async batch
+  - [x] Approved embedding model catalog
+  - [x] Gateway `/v1/embeddings`
+  - [x] Files API for batch inputs and outputs
+  - [x] Batch create/retrieve/cancel
+  - [x] Batch worker
+  - [x] Provider-runtime embeddings endpoint
+  - [x] Seed/demo refresh
+- [ ] `E5-S2` Live payout test in sandbox and staging (deferred pending Stripe sandbox access)
+  - [x] Provider payout account onboarding
+  - [x] Payout readiness and status APIs
+  - [x] Provider-org payout availability read model
+  - [x] Payout run CLI
+  - [x] Stripe webhook reconciliation
+  - [ ] Sandbox runbook evidence
+- [x] `E6-S2` Fraud graph + anomaly alerts
+  - [x] Deterministic org-scoped fraud graph scan
+  - [x] Explainable wash-trading and missing-usage alerts
+  - [x] Risk review API + audit logging
+- [x] `E7-S2` Pricing simulator
+  - [x] Control-plane provider pricing simulator read model + route
+  - [x] Per-node dashboard scenario comparison screen
+  - [x] Demo/docs/evidence refresh
 - [ ] Beta security review
 - [ ] Closed beta with live but capped spend
 
@@ -2352,18 +2576,42 @@ This company is worth building **if** it is marketed and engineered as a **secur
 - **fal docs** — https://docs.fal.ai/
 - **Together AI docs** — https://docs.together.ai/
 
+### Pricing and marketplace economics
+- **OpenRouter pricing** — https://openrouter.ai/pricing
+- **OpenRouter provider routing** — https://openrouter.ai/docs/guides/routing/provider-selection
+- **Runpod pricing** — https://www.runpod.io/pricing
+- **Together AI pricing** — https://www.together.ai/pricing
+- **AWS EC2 Capacity Blocks for ML pricing** — https://aws.amazon.com/ec2/capacityblocks/pricing/
+- **AWS June 2025 GPU pricing update** — https://aws.amazon.com/about-aws/whats-new/2025/06/pricing-usage-model-ec2-instances-nvidia-gpus/
+
 ### Serving stack and orchestration
 - **vLLM docs** — https://docs.vllm.ai/
+- **vLLM automatic prefix caching** — https://docs.vllm.ai/usage/automatic_prefix_caching.html
+- **vLLM prefix caching design** — https://docs.vllm.ai/design/prefix_caching.html
 - **Text Generation Inference docs** — https://huggingface.co/docs/text-generation-inference/
 - **SGLang docs** — https://docs.sglang.ai/
 - **KServe** — https://kserve.github.io/website/
+- **NVIDIA NIM KV cache reuse** — https://docs.nvidia.com/nim/large-language-models/latest/kv-cache-reuse.html
+- **llm-d precise prefix-cache-aware routing** — https://llm-d.ai/docs/guide/Installation/precise-prefix-cache-aware
 
 ### Payments, KYC, and payouts
 - **Stripe Connect** — https://stripe.com/connect
 - **Stripe Connect identity verification** — https://docs.stripe.com/connect/identity-verification
 - **Stripe Connect payouts** — https://docs.stripe.com/connect/payouts-connected-accounts
+- **Stripe-hosted onboarding / account links** — https://docs.stripe.com/connect/connect-onboarding
+- **Stripe Connect testing** — https://docs.stripe.com/connect/testing
+- **Stripe Connect webhooks** — https://docs.stripe.com/connect/webhooks
+- **Stripe Radar** — https://docs.stripe.com/radar
+- **Stripe Radar for Platforms** — https://docs.stripe.com/connect/risk-management/risk-tooling
+- **Stripe connected account reserves** — https://docs.stripe.com/connect/connected-account-reserves
+- **Stripe Radar rules** — https://docs.stripe.com/radar/rules
+- **Stripe webhook signature verification** — https://docs.stripe.com/webhooks/signature
+- **Stripe idempotent requests** — https://docs.stripe.com/api#idempotent_requests
 - **Adyen: onboard and verify users** — https://docs.adyen.com/marketplaces/onboard-users
 - **Tipalti Mass Payments** — https://tipalti.com/en-eu/mass-payments/
+
+### Fraud, anomaly detection, and graph analysis
+- **SEFraud: Graph-based Self-Explainable Fraud Detection** — https://arxiv.org/abs/2406.11389
 
 ### Privacy, sanctions, and export controls
 - **European Commission: controller / processor obligations** — https://commission.europa.eu/law/law-topic/data-protection/rules-business-and-organisations/obligations/controllerprocessor/what-data-controller-or-data-processor_en

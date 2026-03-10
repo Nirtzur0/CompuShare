@@ -9,6 +9,10 @@ import type {
   ServeMockChatCompletionRequest,
   ServeMockChatCompletionUseCase,
 } from "../../application/runtime/ServeMockChatCompletionUseCase.js";
+import type {
+  ServeMockEmbeddingRequest,
+  ServeMockEmbeddingUseCase,
+} from "../../application/runtime/ServeMockEmbeddingUseCase.js";
 
 const querySchema = z.object({
   organizationId: z.uuid(),
@@ -30,6 +34,15 @@ const requestSchema = z.looseObject({
   max_tokens: z.number().int().positive().max(131_072).optional(),
   temperature: z.number().min(0).max(2).optional(),
   top_p: z.number().positive().max(1).optional(),
+});
+
+const embeddingRequestSchema = z.looseObject({
+  model: z.string().min(3).max(120),
+  input: z.union([
+    z.string().min(1).max(200_000),
+    z.array(z.string().min(1).max(200_000)).min(1).max(128),
+  ]),
+  encoding_format: z.literal("float").optional(),
 });
 
 const headersSchema = z.object({
@@ -66,6 +79,7 @@ export function registerProviderRuntimeRoutes(
     ServeMockChatCompletionUseCase,
     "execute"
   >,
+  serveMockEmbeddingUseCase?: Pick<ServeMockEmbeddingUseCase, "execute">,
 ): void {
   app.post("/v1/chat/completions", async (request, reply) => {
     const parsedQuery = querySchema.safeParse(request.query);
@@ -144,6 +158,88 @@ export function registerProviderRuntimeRoutes(
       throw error;
     }
   });
+
+  if (serveMockEmbeddingUseCase === undefined) {
+    return;
+  }
+
+  app.post("/v1/embeddings", async (request, reply) => {
+    const parsedQuery = querySchema.safeParse(request.query);
+    const parsedRequest = embeddingRequestSchema.safeParse(request.body);
+    const parsedHeaders = headersSchema.safeParse(request.headers);
+
+    if (!parsedQuery.success) {
+      return reply.status(400).send({
+        error: "VALIDATION_ERROR",
+        message: parsedQuery.error.issues[0]?.message ?? "Invalid request.",
+      });
+    }
+
+    if (!parsedRequest.success) {
+      return reply.status(400).send({
+        error: "VALIDATION_ERROR",
+        message: parsedRequest.error.issues[0]?.message ?? "Invalid request.",
+      });
+    }
+
+    if (!parsedHeaders.success) {
+      return reply.status(400).send({
+        error: "VALIDATION_ERROR",
+        message: parsedHeaders.error.issues[0]?.message ?? "Invalid request.",
+      });
+    }
+
+    let signedBundle: ServeMockEmbeddingRequest["signedBundle"];
+
+    try {
+      signedBundle = decodeSignedBundle({
+        encodedBundle: parsedHeaders.data["x-compushare-workload-bundle"],
+        signature: parsedHeaders.data["x-compushare-workload-signature"],
+        signatureKeyId:
+          parsedHeaders.data["x-compushare-workload-signature-key-id"],
+      });
+    } catch (error) {
+      return reply.status(400).send({
+        error: "WORKLOAD_BUNDLE_HEADER_INVALID",
+        message: error instanceof Error ? error.message : "Invalid request.",
+      });
+    }
+
+    try {
+      const response = await serveMockEmbeddingUseCase.execute({
+        organizationId: parsedQuery.data.organizationId,
+        environment: parsedQuery.data.environment,
+        providerNodeId: parsedQuery.data.providerNodeId,
+        request: parsedRequest.data,
+        signedBundle,
+      });
+
+      return await reply.status(200).send(response);
+    } catch (error) {
+      if (error instanceof ProviderRuntimeAdmissionRejectedError) {
+        return reply.status(503).send({
+          error: "RUNTIME_ADMISSION_REJECTED",
+          message: error.message,
+        });
+      }
+
+      if (error instanceof ProviderRuntimeAdmissionRequestError) {
+        return reply.status(502).send({
+          error: "CONTROL_PLANE_RUNTIME_ADMISSION_REQUEST_ERROR",
+          message: error.message,
+        });
+      }
+
+      if (error instanceof ProviderRuntimeAdmissionResponseError) {
+        return reply.status(502).send({
+          error: "CONTROL_PLANE_RUNTIME_ADMISSION_RESPONSE_ERROR",
+          message: error.message,
+        });
+      }
+
+      throw error;
+    }
+  });
 }
 
 function decodeSignedBundle(input: {
@@ -151,15 +247,15 @@ function decodeSignedBundle(input: {
   signature: string;
   signatureKeyId: string;
 }): ServeMockChatCompletionRequest["signedBundle"] {
-  let decodedPayload = "";
-
-  try {
-    decodedPayload = Buffer.from(input.encodedBundle, "base64url").toString(
-      "utf8",
-    );
-  } catch {
+  if (
+    input.encodedBundle.length < 1 ||
+    !/^[A-Za-z0-9_-]+$/.test(input.encodedBundle)
+  ) {
     throw new Error("The workload bundle header must be valid base64url.");
   }
+  const decodedPayload = Buffer.from(input.encodedBundle, "base64url").toString(
+    "utf8",
+  );
 
   let parsedPayload: unknown;
 

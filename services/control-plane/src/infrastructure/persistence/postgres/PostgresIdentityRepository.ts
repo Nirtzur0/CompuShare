@@ -1,7 +1,11 @@
 import type { Pool, PoolClient, QueryResult } from "pg";
 import type { ConsumerDashboardRepository } from "../../../application/dashboard/ports/ConsumerDashboardRepository.js";
 import type { ProviderDashboardRepository } from "../../../application/dashboard/ports/ProviderDashboardRepository.js";
+import type { ProviderPricingSimulatorRepository } from "../../../application/dashboard/ports/ProviderPricingSimulatorRepository.js";
+import type { FraudReviewRepository } from "../../../application/fraud/ports/FraudReviewRepository.js";
+import type { GatewayBatchRepository } from "../../../application/batch/ports/GatewayBatchRepository.js";
 import type { OrganizationLedgerRepository } from "../../../application/ledger/ports/OrganizationLedgerRepository.js";
+import type { ProviderPayoutRepository } from "../../../application/payout/ports/ProviderPayoutRepository.js";
 import type { OrganizationApiKeyRepository } from "../../../application/identity/ports/OrganizationApiKeyRepository.js";
 import type { OrganizationInvitationRepository } from "../../../application/identity/ports/OrganizationInvitationRepository.js";
 import type { OrganizationMembershipRepository } from "../../../application/identity/ports/OrganizationMembershipRepository.js";
@@ -10,8 +14,10 @@ import type { PlacementCandidateRepository } from "../../../application/placemen
 import type { SyncPlacementRepository } from "../../../application/placement/ports/SyncPlacementRepository.js";
 import type { ProviderBenchmarkRepository } from "../../../application/provider/ports/ProviderBenchmarkRepository.js";
 import type { ProviderInventoryRepository } from "../../../application/provider/ports/ProviderInventoryRepository.js";
+import type { ProviderNodeAttestationRepository } from "../../../application/provider/ports/ProviderNodeAttestationRepository.js";
 import type { ProviderNodeEnrollmentRepository } from "../../../application/provider/ports/ProviderNodeEnrollmentRepository.js";
 import type { ProviderRoutingProfileRepository } from "../../../application/provider/ports/ProviderRoutingProfileRepository.js";
+import type { ProviderRoutingStateRepository } from "../../../application/provider/ports/ProviderRoutingStateRepository.js";
 import type { GatewayUsageMeterEventRepository } from "../../../application/metering/ports/GatewayUsageMeterEventRepository.js";
 import type { AccountCapability } from "../../../domain/identity/AccountCapability.js";
 import type { EmailAddress } from "../../../domain/identity/EmailAddress.js";
@@ -27,12 +33,20 @@ import { parseOrganizationRole } from "../../../domain/identity/OrganizationRole
 import { User } from "../../../domain/identity/User.js";
 import type { UserId } from "../../../domain/identity/UserId.js";
 import { ConsumerSpendSummary } from "../../../domain/dashboard/ConsumerSpendSummary.js";
+import { FraudGraphCounterpartyExposure } from "../../../domain/fraud/FraudGraphCounterpartyExposure.js";
 import type { LedgerTransaction } from "../../../domain/ledger/LedgerTransaction.js";
 import { OrganizationWalletSummary } from "../../../domain/ledger/OrganizationWalletSummary.js";
 import { StagedPayoutExport } from "../../../domain/ledger/StagedPayoutExport.js";
 import { StagedPayoutExportEntry } from "../../../domain/ledger/StagedPayoutExportEntry.js";
 import { UsdAmount } from "../../../domain/ledger/UsdAmount.js";
 import type { GatewayUsageMeterEvent } from "../../../domain/metering/GatewayUsageMeterEvent.js";
+import { GatewayBatchJob } from "../../../domain/batch/GatewayBatchJob.js";
+import { GatewayBatchJobItem } from "../../../domain/batch/GatewayBatchJobItem.js";
+import { GatewayFile } from "../../../domain/batch/GatewayFile.js";
+import { ProviderPayoutAccount } from "../../../domain/payout/ProviderPayoutAccount.js";
+import { ProviderPayoutAvailability } from "../../../domain/payout/ProviderPayoutAvailability.js";
+import { ProviderPayoutDisbursement } from "../../../domain/payout/ProviderPayoutDisbursement.js";
+import type { ProviderPayoutRun } from "../../../domain/payout/ProviderPayoutRun.js";
 import type {
   PlacementDecisionLog,
   PlacementDecisionLogSnapshot
@@ -42,10 +56,15 @@ import {
   type ProviderBenchmarkReportSnapshot
 } from "../../../domain/provider/ProviderBenchmarkReport.js";
 import { ProviderInventorySummary } from "../../../domain/provider/ProviderInventorySummary.js";
+import type { ProviderNodeAttestationSnapshot } from "../../../domain/provider/ProviderNodeAttestation.js";
+import { ProviderNodeAttestationChallenge } from "../../../domain/provider/ProviderNodeAttestationChallenge.js";
+import type { ProviderNodeAttestationRecord } from "../../../domain/provider/ProviderNodeAttestationRecord.js";
 import type { ProviderMachineId } from "../../../domain/provider/ProviderMachineId.js";
 import type { ProviderNodeId } from "../../../domain/provider/ProviderNodeId.js";
 import { ProviderNode } from "../../../domain/provider/ProviderNode.js";
 import { ProviderNodeRoutingProfile } from "../../../domain/provider/ProviderNodeRoutingProfile.js";
+import type { ProviderWarmModelState } from "../../../domain/provider/ProviderWarmModelState.js";
+import { resolveEffectiveProviderTrustTier } from "../../../domain/provider/resolveEffectiveProviderTrustTier.js";
 
 interface UserRow {
   id: string;
@@ -114,6 +133,30 @@ interface ProviderNodeRow {
   enrolled_at: Date;
 }
 
+interface ProviderNodeAttestationChallengeRow {
+  id: string;
+  provider_node_id: string;
+  nonce: string;
+  created_at: Date;
+  expires_at: Date;
+  used_at: Date | null;
+}
+
+interface ProviderNodeAttestationRow {
+  id: string;
+  provider_node_id: string;
+  challenge_id: string;
+  attestation_type: string;
+  attestation_public_key_fingerprint: string;
+  quoted_at: Date;
+  secure_boot_enabled: boolean;
+  pcr_values: Record<string, string>;
+  verified: boolean;
+  failure_reason: string | null;
+  recorded_at: Date;
+  expires_at: Date | null;
+}
+
 interface ProviderNodeGpuRow {
   provider_node_id: string;
   model: string;
@@ -132,6 +175,13 @@ interface ProviderNodeBenchmarkRow {
   recorded_at: Date;
 }
 
+interface ProviderNodeWarmModelStateRow {
+  provider_node_id: string;
+  approved_model_alias: string;
+  declared_at: Date;
+  expires_at: Date;
+}
+
 interface PlacementDecisionLogRow {
   id: string;
   organization_id: string;
@@ -141,9 +191,13 @@ interface PlacementDecisionLogRow {
   region: string;
   minimum_trust_tier: string;
   max_price_usd_per_hour: number;
+  approved_model_alias: string | null;
   candidate_count: number;
   selected_provider_node_id: string | null;
   selected_provider_organization_id: string | null;
+  selection_score: number | null;
+  price_performance_score: number | null;
+  warm_cache_matched: boolean | null;
   rejection_reason: string | null;
   created_at: Date;
 }
@@ -171,6 +225,13 @@ interface ProviderEarningsTrendRow {
   reserve_holdback_cents: string;
 }
 
+interface ProviderSettlementEconomicsRow {
+  settlement_count: string;
+  provider_payable_cents: string;
+  platform_revenue_cents: string;
+  reserve_holdback_cents: string;
+}
+
 interface GatewayUsageMeterEventRow {
   occurred_at: Date;
   approved_model_alias: string;
@@ -178,12 +239,140 @@ interface GatewayUsageMeterEventRow {
   latency_ms: number;
 }
 
+interface ProviderNodeUsageTotalRow {
+  provider_node_id: string | null;
+  total_tokens: string;
+}
+
+interface CounterpartySettlementAggregateRow {
+  counterparty_organization_id: string;
+  counterparty_name: string;
+  counterparty_slug: string;
+  settlement_count: string;
+  settled_cents: string;
+  first_activity_at: Date;
+  last_activity_at: Date;
+}
+
+interface CounterpartyUsageAggregateRow {
+  counterparty_organization_id: string;
+  counterparty_name: string;
+  counterparty_slug: string;
+  usage_event_count: string;
+  usage_total_tokens: string;
+  first_activity_at: Date;
+  last_activity_at: Date;
+}
+
+interface SharedMemberAggregateRow {
+  counterparty_organization_id: string;
+  counterparty_name: string;
+  counterparty_slug: string;
+  shared_member_email: string;
+}
+
+interface GatewayFileRow {
+  id: string;
+  organization_id: string;
+  environment: string;
+  purpose: "batch";
+  filename: string;
+  media_type: string;
+  bytes: number;
+  content: string;
+  created_by_user_id: string;
+  created_at: Date;
+}
+
+interface GatewayBatchJobRow {
+  id: string;
+  organization_id: string;
+  environment: string;
+  input_file_id: string;
+  output_file_id: string | null;
+  error_file_id: string | null;
+  endpoint: "/v1/chat/completions" | "/v1/embeddings";
+  completion_window: "24h";
+  status:
+    | "validating"
+    | "in_progress"
+    | "finalizing"
+    | "completed"
+    | "failed"
+    | "cancelling"
+    | "cancelled";
+  created_by_user_id: string;
+  created_at: Date;
+  in_progress_at: Date | null;
+  completed_at: Date | null;
+  request_count_total: number;
+  request_count_completed: number;
+  request_count_failed: number;
+}
+
+interface GatewayBatchItemRow {
+  batch_id: string;
+  ordinal: number;
+  custom_id: string;
+  method: "POST";
+  endpoint: "/v1/chat/completions" | "/v1/embeddings";
+  body: Record<string, unknown>;
+  status: "pending" | "completed" | "failed" | "cancelled";
+  response_body: Record<string, unknown> | null;
+  error_body: Record<string, unknown> | null;
+  completed_at: Date | null;
+}
+
+interface ProviderOrganizationRow {
+  id: string;
+}
+
+interface ProviderPayoutAccountRow {
+  organization_id: string;
+  stripe_account_id: string;
+  onboarding_status: "pending" | "completed";
+  charges_enabled: boolean;
+  payouts_enabled: boolean;
+  details_submitted: boolean;
+  country: string;
+  default_currency: string;
+  requirements_currently_due: string[];
+  requirements_eventually_due: string[];
+  last_stripe_sync_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface ProviderPayoutDisbursementRow {
+  id: string;
+  payout_run_id: string;
+  provider_organization_id: string;
+  stripe_account_id: string;
+  stripe_transfer_id: string | null;
+  stripe_payout_id: string | null;
+  idempotency_key: string;
+  amount_cents: string;
+  currency: string;
+  status: "pending" | "paid" | "failed" | "canceled";
+  failure_code: string | null;
+  failure_message: string | null;
+  created_at: Date;
+  updated_at: Date;
+  paid_at: Date | null;
+  failed_at: Date | null;
+  canceled_at: Date | null;
+}
+
 export class PostgresIdentityRepository
   implements
     ConsumerDashboardRepository,
     ProviderDashboardRepository,
+    ProviderPricingSimulatorRepository,
+    FraudReviewRepository,
+    GatewayBatchRepository,
     GatewayUsageMeterEventRepository,
     OrganizationLedgerRepository,
+    ProviderPayoutRepository,
     OrganizationProvisioningRepository,
     OrganizationInvitationRepository,
     OrganizationMembershipRepository,
@@ -193,9 +382,14 @@ export class PostgresIdentityRepository
     ProviderNodeEnrollmentRepository,
     ProviderBenchmarkRepository,
     ProviderInventoryRepository,
-    ProviderRoutingProfileRepository
+    ProviderNodeAttestationRepository,
+    ProviderRoutingProfileRepository,
+    ProviderRoutingStateRepository
 {
-  public constructor(private readonly pool: Pick<Pool, "connect" | "query">) {}
+  public constructor(
+    private readonly pool: Pick<Pool, "connect" | "query">,
+    private readonly clock: () => Date = () => new Date()
+  ) {}
 
   public async findUserByEmail(email: EmailAddress): Promise<User | null> {
     const result = await this.pool.query<UserRow>(
@@ -837,6 +1031,374 @@ export class PostgresIdentityRepository
     });
   }
 
+  public async listProviderOrganizationIds(input: {
+    providerOrganizationId?: OrganizationId;
+  }): Promise<readonly string[]> {
+    const result = await this.pool.query<ProviderOrganizationRow>(
+      `
+        SELECT id
+        FROM organizations
+        WHERE account_capabilities @> ARRAY['provider']::text[]
+          AND ($1::uuid IS NULL OR id = $1)
+        ORDER BY id ASC
+      `,
+      [input.providerOrganizationId?.value ?? null]
+    );
+
+    return result.rows.map((row) => row.id);
+  }
+
+  public async findProviderPayoutAccountByOrganizationId(
+    organizationId: OrganizationId
+  ): Promise<ProviderPayoutAccount | null> {
+    const result = await this.pool.query<ProviderPayoutAccountRow>(
+      `
+        SELECT
+          organization_id,
+          stripe_account_id,
+          onboarding_status,
+          charges_enabled,
+          payouts_enabled,
+          details_submitted,
+          country,
+          default_currency,
+          requirements_currently_due,
+          requirements_eventually_due,
+          last_stripe_sync_at,
+          created_at,
+          updated_at
+        FROM provider_payout_accounts
+        WHERE organization_id = $1
+      `,
+      [organizationId.value]
+    );
+
+    return this.mapProviderPayoutAccountRow(result.rows[0]);
+  }
+
+  public async findProviderPayoutAccountByStripeAccountId(
+    stripeAccountId: string
+  ): Promise<ProviderPayoutAccount | null> {
+    const result = await this.pool.query<ProviderPayoutAccountRow>(
+      `
+        SELECT
+          organization_id,
+          stripe_account_id,
+          onboarding_status,
+          charges_enabled,
+          payouts_enabled,
+          details_submitted,
+          country,
+          default_currency,
+          requirements_currently_due,
+          requirements_eventually_due,
+          last_stripe_sync_at,
+          created_at,
+          updated_at
+        FROM provider_payout_accounts
+        WHERE stripe_account_id = $1
+      `,
+      [stripeAccountId]
+    );
+
+    return this.mapProviderPayoutAccountRow(result.rows[0]);
+  }
+
+  public async upsertProviderPayoutAccount(
+    account: ProviderPayoutAccount
+  ): Promise<void> {
+    const snapshot = account.toSnapshot();
+
+    await this.pool.query(
+      `
+        INSERT INTO provider_payout_accounts (
+          organization_id,
+          stripe_account_id,
+          onboarding_status,
+          charges_enabled,
+          payouts_enabled,
+          details_submitted,
+          country,
+          default_currency,
+          requirements_currently_due,
+          requirements_eventually_due,
+          last_stripe_sync_at,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, $12, $13)
+        ON CONFLICT (organization_id)
+        DO UPDATE SET
+          stripe_account_id = EXCLUDED.stripe_account_id,
+          onboarding_status = EXCLUDED.onboarding_status,
+          charges_enabled = EXCLUDED.charges_enabled,
+          payouts_enabled = EXCLUDED.payouts_enabled,
+          details_submitted = EXCLUDED.details_submitted,
+          country = EXCLUDED.country,
+          default_currency = EXCLUDED.default_currency,
+          requirements_currently_due = EXCLUDED.requirements_currently_due,
+          requirements_eventually_due = EXCLUDED.requirements_eventually_due,
+          last_stripe_sync_at = EXCLUDED.last_stripe_sync_at,
+          updated_at = EXCLUDED.updated_at
+      `,
+      [
+        snapshot.organizationId,
+        snapshot.stripeAccountId,
+        snapshot.onboardingStatus,
+        snapshot.chargesEnabled,
+        snapshot.payoutsEnabled,
+        snapshot.detailsSubmitted,
+        snapshot.country,
+        snapshot.defaultCurrency,
+        JSON.stringify(snapshot.requirementsCurrentlyDue),
+        JSON.stringify(snapshot.requirementsEventuallyDue),
+        snapshot.lastStripeSyncAt,
+        snapshot.createdAt,
+        snapshot.updatedAt
+      ]
+    );
+  }
+
+  public async getProviderPayoutAvailability(
+    organizationId: OrganizationId
+  ): Promise<ProviderPayoutAvailability> {
+    const wallet = await this.getOrganizationWalletSummary(organizationId);
+    const reservedResult = await this.pool.query<{
+      reserved_cents: string;
+      last_payout_at: Date | null;
+      last_payout_status: "pending" | "paid" | "failed" | "canceled" | null;
+    }>(
+      `
+        SELECT
+          COALESCE(
+            SUM(
+              CASE
+                WHEN status IN ('pending', 'paid') THEN amount_cents
+                ELSE 0
+              END
+            ),
+            0
+          )::text AS reserved_cents,
+          (
+            ARRAY_AGG(updated_at ORDER BY updated_at DESC)
+          )[1] AS last_payout_at,
+          (
+            ARRAY_AGG(status ORDER BY updated_at DESC)
+          )[1] AS last_payout_status
+        FROM provider_payout_disbursements
+        WHERE provider_organization_id = $1
+      `,
+      [organizationId.value]
+    );
+    const reservedCents = Number.parseInt(
+      reservedResult.rows[0]?.reserved_cents ?? "0",
+      10
+    );
+    const eligiblePayoutCents = Math.max(
+      wallet.withdrawableCash.cents - reservedCents,
+      0
+    );
+
+    return ProviderPayoutAvailability.create({
+      organizationId: organizationId.value,
+      pendingEarningsCents: wallet.pendingEarnings.cents,
+      reserveHoldbackCents: Math.max(
+        wallet.pendingEarnings.cents - wallet.withdrawableCash.cents,
+        0
+      ),
+      withdrawableCashCents: wallet.withdrawableCash.cents,
+      eligiblePayoutCents,
+      lastPayoutAt: reservedResult.rows[0]?.last_payout_at ?? null,
+      lastPayoutStatus: reservedResult.rows[0]?.last_payout_status ?? "none"
+    });
+  }
+
+  public async createProviderPayoutRun(run: ProviderPayoutRun): Promise<void> {
+    const snapshot = run.toSnapshot();
+
+    await this.pool.query(
+      `
+        INSERT INTO provider_payout_runs (
+          id,
+          environment,
+          provider_organization_id_filter,
+          dry_run,
+          status,
+          started_at,
+          completed_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `,
+      [
+        snapshot.id,
+        snapshot.environment,
+        snapshot.providerOrganizationIdFilter,
+        snapshot.dryRun,
+        snapshot.status,
+        snapshot.startedAt,
+        snapshot.completedAt
+      ]
+    );
+  }
+
+  public async updateProviderPayoutRun(run: ProviderPayoutRun): Promise<void> {
+    const snapshot = run.toSnapshot();
+
+    await this.pool.query(
+      `
+        UPDATE provider_payout_runs
+        SET status = $2, completed_at = $3
+        WHERE id = $1
+      `,
+      [snapshot.id, snapshot.status, snapshot.completedAt]
+    );
+  }
+
+  public async createProviderPayoutDisbursement(
+    disbursement: ProviderPayoutDisbursement
+  ): Promise<void> {
+    const snapshot = disbursement.toSnapshot();
+
+    await this.pool.query(
+      `
+        INSERT INTO provider_payout_disbursements (
+          id,
+          payout_run_id,
+          provider_organization_id,
+          stripe_account_id,
+          stripe_transfer_id,
+          stripe_payout_id,
+          idempotency_key,
+          amount_cents,
+          currency,
+          status,
+          failure_code,
+          failure_message,
+          created_at,
+          updated_at,
+          paid_at,
+          failed_at,
+          canceled_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      `,
+      [
+        snapshot.id,
+        snapshot.payoutRunId,
+        snapshot.providerOrganizationId,
+        snapshot.stripeAccountId,
+        snapshot.stripeTransferId,
+        snapshot.stripePayoutId,
+        snapshot.idempotencyKey,
+        disbursement.amount.cents,
+        snapshot.currency,
+        snapshot.status,
+        snapshot.failureCode,
+        snapshot.failureMessage,
+        snapshot.createdAt,
+        snapshot.updatedAt,
+        snapshot.paidAt,
+        snapshot.failedAt,
+        snapshot.canceledAt
+      ]
+    );
+  }
+
+  public async updateProviderPayoutDisbursement(
+    disbursement: ProviderPayoutDisbursement
+  ): Promise<void> {
+    const snapshot = disbursement.toSnapshot();
+
+    await this.pool.query(
+      `
+        UPDATE provider_payout_disbursements
+        SET
+          stripe_transfer_id = $2,
+          stripe_payout_id = $3,
+          status = $4,
+          failure_code = $5,
+          failure_message = $6,
+          updated_at = $7,
+          paid_at = $8,
+          failed_at = $9,
+          canceled_at = $10
+        WHERE id = $1
+      `,
+      [
+        snapshot.id,
+        snapshot.stripeTransferId,
+        snapshot.stripePayoutId,
+        snapshot.status,
+        snapshot.failureCode,
+        snapshot.failureMessage,
+        snapshot.updatedAt,
+        snapshot.paidAt,
+        snapshot.failedAt,
+        snapshot.canceledAt
+      ]
+    );
+  }
+
+  public async findProviderPayoutDisbursementByStripePayoutId(
+    stripePayoutId: string
+  ): Promise<ProviderPayoutDisbursement | null> {
+    const result = await this.pool.query<ProviderPayoutDisbursementRow>(
+      `
+        SELECT
+          id,
+          payout_run_id,
+          provider_organization_id,
+          stripe_account_id,
+          stripe_transfer_id,
+          stripe_payout_id,
+          idempotency_key,
+          amount_cents::text AS amount_cents,
+          currency,
+          status,
+          failure_code,
+          failure_message,
+          created_at,
+          updated_at,
+          paid_at,
+          failed_at,
+          canceled_at
+        FROM provider_payout_disbursements
+        WHERE stripe_payout_id = $1
+      `,
+      [stripePayoutId]
+    );
+
+    return this.mapProviderPayoutDisbursementRow(result.rows[0]);
+  }
+
+  public async recordStripeWebhookReceipt(input: {
+    eventId: string;
+    eventType: string;
+    receivedAt: Date;
+    payload: Record<string, unknown>;
+  }): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+        INSERT INTO stripe_webhook_receipts (
+          event_id,
+          event_type,
+          received_at,
+          payload
+        )
+        VALUES ($1, $2, $3, $4::jsonb)
+        ON CONFLICT (event_id) DO NOTHING
+      `,
+      [
+        input.eventId,
+        input.eventType,
+        input.receivedAt.toISOString(),
+        JSON.stringify(input.payload)
+      ]
+    );
+
+    return (result.rowCount ?? 0) > 0;
+  }
+
   public async appendGatewayUsageMeterEvent(
     event: GatewayUsageMeterEvent
   ): Promise<void> {
@@ -851,15 +1413,18 @@ export class PostgresIdentityRepository
           provider_organization_id,
           provider_node_id,
           environment,
+          request_kind,
           approved_model_alias,
           manifest_id,
           decision_log_id,
+          batch_id,
+          batch_item_id,
           prompt_tokens,
           completion_tokens,
           total_tokens,
           latency_ms
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       `,
       [
         snapshot.workloadBundleId,
@@ -868,15 +1433,479 @@ export class PostgresIdentityRepository
         snapshot.providerOrganizationId,
         snapshot.providerNodeId,
         snapshot.environment,
+        snapshot.requestKind,
         snapshot.approvedModelAlias,
         snapshot.manifestId,
         snapshot.decisionLogId,
+        snapshot.batchId,
+        snapshot.batchItemId,
         snapshot.promptTokens,
         snapshot.completionTokens,
         snapshot.totalTokens,
         snapshot.latencyMs
       ]
     );
+  }
+
+  public async createGatewayFile(file: GatewayFile): Promise<void> {
+    const snapshot = file.toSnapshot();
+
+    await this.pool.query(
+      `
+        INSERT INTO gateway_files (
+          id,
+          organization_id,
+          environment,
+          purpose,
+          filename,
+          media_type,
+          bytes,
+          content,
+          created_by_user_id,
+          created_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `,
+      [
+        snapshot.id,
+        snapshot.organizationId,
+        snapshot.environment,
+        snapshot.purpose,
+        snapshot.filename,
+        snapshot.mediaType,
+        snapshot.bytes,
+        file.content,
+        snapshot.createdByUserId,
+        snapshot.createdAt
+      ]
+    );
+  }
+
+  public async findGatewayFileById(
+    fileId: string
+  ): Promise<GatewayFile | null> {
+    const result = await this.pool.query<GatewayFileRow>(
+      `
+        SELECT
+          id,
+          organization_id,
+          environment,
+          purpose,
+          filename,
+          media_type,
+          bytes,
+          content,
+          created_by_user_id,
+          created_at
+        FROM gateway_files
+        WHERE id = $1
+      `,
+      [fileId]
+    );
+    const row = result.rows[0];
+
+    if (row === undefined) {
+      return null;
+    }
+
+    return GatewayFile.rehydrate({
+      id: row.id,
+      organizationId: row.organization_id,
+      environment: row.environment,
+      purpose: row.purpose,
+      filename: row.filename,
+      mediaType: row.media_type,
+      bytes: row.bytes,
+      content: row.content,
+      createdByUserId: row.created_by_user_id,
+      createdAt: row.created_at
+    });
+  }
+
+  public async createGatewayBatchJob(
+    batch: GatewayBatchJob,
+    items: readonly GatewayBatchJobItem[]
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    const snapshot = batch.toSnapshot();
+
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `
+          INSERT INTO gateway_batch_jobs (
+            id,
+            organization_id,
+            environment,
+            input_file_id,
+            output_file_id,
+            error_file_id,
+            endpoint,
+            completion_window,
+            status,
+            created_by_user_id,
+            created_at,
+            in_progress_at,
+            completed_at,
+            request_count_total,
+            request_count_completed,
+            request_count_failed
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        `,
+        [
+          snapshot.id,
+          snapshot.organizationId,
+          snapshot.environment,
+          snapshot.inputFileId,
+          snapshot.outputFileId,
+          snapshot.errorFileId,
+          snapshot.endpoint,
+          snapshot.completionWindow,
+          snapshot.status,
+          snapshot.createdByUserId,
+          snapshot.createdAt,
+          snapshot.inProgressAt,
+          snapshot.completedAt,
+          snapshot.requestCounts.total,
+          snapshot.requestCounts.completed,
+          snapshot.requestCounts.failed
+        ]
+      );
+
+      for (const item of items) {
+        const itemSnapshot = item.toSnapshot();
+        await client.query(
+          `
+            INSERT INTO gateway_batch_items (
+              batch_id,
+              ordinal,
+              custom_id,
+              method,
+              endpoint,
+              body,
+              status,
+              response_body,
+              error_body,
+              completed_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10)
+          `,
+          [
+            itemSnapshot.batchId,
+            itemSnapshot.ordinal,
+            itemSnapshot.customId,
+            itemSnapshot.method,
+            itemSnapshot.endpoint,
+            JSON.stringify(itemSnapshot.body),
+            itemSnapshot.status,
+            itemSnapshot.responseBody === null
+              ? null
+              : JSON.stringify(itemSnapshot.responseBody),
+            itemSnapshot.errorBody === null
+              ? null
+              : JSON.stringify(itemSnapshot.errorBody),
+            itemSnapshot.completedAt
+          ]
+        );
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async findGatewayBatchJobById(
+    batchId: string
+  ): Promise<GatewayBatchJob | null> {
+    const result = await this.pool.query<GatewayBatchJobRow>(
+      `
+        SELECT
+          id,
+          organization_id,
+          environment,
+          input_file_id,
+          output_file_id,
+          error_file_id,
+          endpoint,
+          completion_window,
+          status,
+          created_by_user_id,
+          created_at,
+          in_progress_at,
+          completed_at,
+          request_count_total,
+          request_count_completed,
+          request_count_failed
+        FROM gateway_batch_jobs
+        WHERE id = $1
+      `,
+      [batchId]
+    );
+    const row = result.rows[0];
+
+    if (row === undefined) {
+      return null;
+    }
+
+    return GatewayBatchJob.rehydrate({
+      id: row.id,
+      organizationId: row.organization_id,
+      environment: row.environment,
+      inputFileId: row.input_file_id,
+      outputFileId: row.output_file_id,
+      errorFileId: row.error_file_id,
+      endpoint: row.endpoint,
+      completionWindow: row.completion_window,
+      status: row.status,
+      createdByUserId: row.created_by_user_id,
+      createdAt: row.created_at,
+      inProgressAt: row.in_progress_at,
+      completedAt: row.completed_at,
+      requestCounts: {
+        total: row.request_count_total,
+        completed: row.request_count_completed,
+        failed: row.request_count_failed
+      }
+    });
+  }
+
+  public async listGatewayBatchItems(
+    batchId: string
+  ): Promise<readonly GatewayBatchJobItem[]> {
+    const result = await this.pool.query<GatewayBatchItemRow>(
+      `
+        SELECT
+          batch_id,
+          ordinal,
+          custom_id,
+          method,
+          endpoint,
+          body,
+          status,
+          response_body,
+          error_body,
+          completed_at
+        FROM gateway_batch_items
+        WHERE batch_id = $1
+        ORDER BY ordinal ASC
+      `,
+      [batchId]
+    );
+
+    return result.rows.map((row) =>
+      GatewayBatchJobItem.rehydrate({
+        batchId: row.batch_id,
+        ordinal: row.ordinal,
+        customId: row.custom_id,
+        method: row.method,
+        endpoint: row.endpoint,
+        body: row.body,
+        status: row.status,
+        responseBody: row.response_body,
+        errorBody: row.error_body,
+        completedAt: row.completed_at
+      })
+    );
+  }
+
+  public async updateGatewayBatchStatus(input: {
+    batchId: string;
+    status:
+      | "validating"
+      | "in_progress"
+      | "finalizing"
+      | "completed"
+      | "failed"
+      | "cancelling"
+      | "cancelled";
+    inProgressAt?: string | null;
+    completedAt?: string | null;
+    outputFileId?: string | null;
+    errorFileId?: string | null;
+  }): Promise<void> {
+    await this.pool.query(
+      `
+        UPDATE gateway_batch_jobs
+        SET
+          status = $2,
+          in_progress_at = COALESCE($3, in_progress_at),
+          completed_at = COALESCE($4, completed_at),
+          output_file_id = COALESCE($5, output_file_id),
+          error_file_id = COALESCE($6, error_file_id)
+        WHERE id = $1
+      `,
+      [
+        input.batchId,
+        input.status,
+        input.inProgressAt ?? null,
+        input.completedAt ?? null,
+        input.outputFileId ?? null,
+        input.errorFileId ?? null
+      ]
+    );
+  }
+
+  public async markGatewayBatchItemCompleted(input: {
+    batchId: string;
+    ordinal: number;
+    responseBody: Record<string, unknown>;
+    completedAt: string;
+  }): Promise<void> {
+    await this.pool.query(
+      `
+        UPDATE gateway_batch_items
+        SET
+          status = 'completed',
+          response_body = $3::jsonb,
+          completed_at = $4
+        WHERE batch_id = $1 AND ordinal = $2
+      `,
+      [
+        input.batchId,
+        input.ordinal,
+        JSON.stringify(input.responseBody),
+        input.completedAt
+      ]
+    );
+    await this.pool.query(
+      `
+        UPDATE gateway_batch_jobs
+        SET request_count_completed = request_count_completed + 1
+        WHERE id = $1
+      `,
+      [input.batchId]
+    );
+  }
+
+  public async markGatewayBatchItemFailed(input: {
+    batchId: string;
+    ordinal: number;
+    errorBody: Record<string, unknown>;
+    completedAt: string;
+  }): Promise<void> {
+    await this.pool.query(
+      `
+        UPDATE gateway_batch_items
+        SET
+          status = 'failed',
+          error_body = $3::jsonb,
+          completed_at = $4
+        WHERE batch_id = $1 AND ordinal = $2
+      `,
+      [
+        input.batchId,
+        input.ordinal,
+        JSON.stringify(input.errorBody),
+        input.completedAt
+      ]
+    );
+    await this.pool.query(
+      `
+        UPDATE gateway_batch_jobs
+        SET request_count_failed = request_count_failed + 1
+        WHERE id = $1
+      `,
+      [input.batchId]
+    );
+  }
+
+  public async markGatewayBatchItemCancelled(input: {
+    batchId: string;
+    ordinal: number;
+    completedAt: string;
+  }): Promise<void> {
+    await this.pool.query(
+      `
+        UPDATE gateway_batch_items
+        SET
+          status = 'cancelled',
+          completed_at = $3
+        WHERE batch_id = $1 AND ordinal = $2
+      `,
+      [input.batchId, input.ordinal, input.completedAt]
+    );
+  }
+
+  public async claimNextGatewayBatch(): Promise<GatewayBatchJob | null> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<GatewayBatchJobRow>(
+        `
+          SELECT
+            id,
+            organization_id,
+            environment,
+            input_file_id,
+            output_file_id,
+            error_file_id,
+            endpoint,
+            completion_window,
+            status,
+            created_by_user_id,
+            created_at,
+            in_progress_at,
+            completed_at,
+            request_count_total,
+            request_count_completed,
+            request_count_failed
+          FROM gateway_batch_jobs
+          WHERE status = 'validating'
+          ORDER BY created_at ASC
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+        `
+      );
+      const row = result.rows[0];
+
+      if (row === undefined) {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      const inProgressAt = this.clock().toISOString();
+      await client.query(
+        `
+          UPDATE gateway_batch_jobs
+          SET status = 'in_progress', in_progress_at = $2
+          WHERE id = $1
+        `,
+        [row.id, inProgressAt]
+      );
+      await client.query("COMMIT");
+
+      return GatewayBatchJob.rehydrate({
+        id: row.id,
+        organizationId: row.organization_id,
+        environment: row.environment,
+        inputFileId: row.input_file_id,
+        outputFileId: row.output_file_id,
+        errorFileId: row.error_file_id,
+        endpoint: row.endpoint,
+        completionWindow: row.completion_window,
+        status: "in_progress",
+        createdByUserId: row.created_by_user_id,
+        createdAt: row.created_at,
+        inProgressAt: new Date(inProgressAt),
+        completedAt: row.completed_at,
+        requestCounts: {
+          total: row.request_count_total,
+          completed: row.request_count_completed,
+          failed: row.request_count_failed
+        }
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   public async listProviderDailyEarningsTrend(input: {
@@ -990,6 +2019,109 @@ export class PostgresIdentityRepository
         date,
         totalTokens
       }));
+  }
+
+  public async listProviderNodeUsageTotals(input: {
+    organizationId: OrganizationId;
+    startDateInclusive: Date;
+    endDateExclusive: Date;
+  }): Promise<
+    readonly {
+      providerNodeId: string;
+      totalTokens: number;
+    }[]
+  > {
+    const result = await this.pool.query<ProviderNodeUsageTotalRow>(
+      `
+        SELECT
+          provider_node_id,
+          COALESCE(SUM(total_tokens), 0)::text AS total_tokens
+        FROM gateway_usage_meter_events
+        WHERE provider_organization_id = $1
+          AND occurred_at >= $2
+          AND occurred_at < $3
+        GROUP BY provider_node_id
+        ORDER BY provider_node_id ASC
+      `,
+      [
+        input.organizationId.value,
+        input.startDateInclusive.toISOString(),
+        input.endDateExclusive.toISOString()
+      ]
+    );
+
+    return result.rows
+      .filter(
+        (row): row is ProviderNodeUsageTotalRow & { provider_node_id: string } =>
+          row.provider_node_id !== null
+      )
+      .map((row) => ({
+        providerNodeId: row.provider_node_id,
+        totalTokens: Number.parseInt(row.total_tokens, 10)
+      }));
+  }
+
+  public async getProviderSettlementEconomics(input: {
+    organizationId: OrganizationId;
+    startDateInclusive: Date;
+    endDateExclusive: Date;
+  }): Promise<{
+    settlementCount: number;
+    providerPayable: UsdAmount;
+    platformRevenue: UsdAmount;
+    reserveHoldback: UsdAmount;
+  }> {
+    const result = await this.pool.query<ProviderSettlementEconomicsRow>(
+      `
+        SELECT
+          COUNT(*)::text AS settlement_count,
+          COALESCE(SUM(provider_posting.amount_cents), 0)::text AS provider_payable_cents,
+          COALESCE(SUM(platform_posting.amount_cents), 0)::text AS platform_revenue_cents,
+          COALESCE(SUM(reserve_posting.amount_cents), 0)::text AS reserve_holdback_cents
+        FROM ledger_transactions
+        INNER JOIN ledger_postings AS provider_posting
+          ON provider_posting.transaction_id = ledger_transactions.id
+         AND provider_posting.account_code = 'provider_payable'
+         AND provider_posting.direction = 'credit'
+         AND provider_posting.organization_id = $1
+        LEFT JOIN ledger_postings AS platform_posting
+          ON platform_posting.transaction_id = ledger_transactions.id
+         AND platform_posting.account_code = 'platform_revenue'
+         AND platform_posting.direction = 'credit'
+        LEFT JOIN ledger_postings AS reserve_posting
+          ON reserve_posting.transaction_id = ledger_transactions.id
+         AND reserve_posting.account_code = 'risk_reserve'
+         AND reserve_posting.direction = 'credit'
+         AND reserve_posting.organization_id = $1
+        WHERE ledger_transactions.transaction_type = 'job_settlement'
+          AND ledger_transactions.occurred_at >= $2
+          AND ledger_transactions.occurred_at < $3
+      `,
+      [
+        input.organizationId.value,
+        input.startDateInclusive.toISOString(),
+        input.endDateExclusive.toISOString()
+      ]
+    );
+    const row = result.rows[0];
+
+    return {
+      settlementCount:
+        row === undefined ? 0 : Number.parseInt(row.settlement_count, 10),
+      providerPayable: UsdAmount.createFromCents(
+        row === undefined ? 0 : Number.parseInt(row.provider_payable_cents, 10)
+      ),
+      platformRevenue: UsdAmount.createFromCents(
+        row === undefined
+          ? 0
+          : Number.parseInt(row.platform_revenue_cents, 10)
+      ),
+      reserveHoldback: UsdAmount.createFromCents(
+        row === undefined
+          ? 0
+          : Number.parseInt(row.reserve_holdback_cents, 10)
+      )
+    };
   }
 
   public async listConsumerDailyUsageTrend(input: {
@@ -1122,6 +2254,307 @@ export class PostgresIdentityRepository
       );
   }
 
+  public async listFraudGraphCounterpartyExposures(input: {
+    organizationId: OrganizationId;
+    startDateInclusive: Date;
+    endDateExclusive: Date;
+  }): Promise<readonly FraudGraphCounterpartyExposure[]> {
+    const organizationId = input.organizationId.value;
+    const startDateInclusive = input.startDateInclusive.toISOString();
+    const endDateExclusive = input.endDateExclusive.toISOString();
+    const exposures = new Map<
+      string,
+      {
+        counterpartyOrganizationId: string;
+        counterpartyOrganizationName: string;
+        counterpartyOrganizationSlug: string;
+        sharedMemberEmails: string[];
+        outgoingSettlementCount: number;
+        outgoingSettledCents: number;
+        outgoingUsageEventCount: number;
+        outgoingUsageTotalTokens: number;
+        incomingSettlementCount: number;
+        incomingSettledCents: number;
+        incomingUsageEventCount: number;
+        incomingUsageTotalTokens: number;
+        firstActivityAt: Date | null;
+        lastActivityAt: Date | null;
+      }
+    >();
+
+    const ensureExposure = (row: {
+      counterpartyOrganizationId: string;
+      counterpartyOrganizationName: string;
+      counterpartyOrganizationSlug: string;
+    }) => {
+      const existing = exposures.get(row.counterpartyOrganizationId);
+
+      if (existing !== undefined) {
+        return existing;
+      }
+
+      const created = {
+        counterpartyOrganizationId: row.counterpartyOrganizationId,
+        counterpartyOrganizationName: row.counterpartyOrganizationName,
+        counterpartyOrganizationSlug: row.counterpartyOrganizationSlug,
+        sharedMemberEmails: [] as string[],
+        outgoingSettlementCount: 0,
+        outgoingSettledCents: 0,
+        outgoingUsageEventCount: 0,
+        outgoingUsageTotalTokens: 0,
+        incomingSettlementCount: 0,
+        incomingSettledCents: 0,
+        incomingUsageEventCount: 0,
+        incomingUsageTotalTokens: 0,
+        firstActivityAt: null as Date | null,
+        lastActivityAt: null as Date | null
+      };
+
+      exposures.set(row.counterpartyOrganizationId, created);
+      return created;
+    };
+
+    const mergeActivityWindow = (
+      current: {
+        firstActivityAt: Date | null;
+        lastActivityAt: Date | null;
+      },
+      firstActivityAt: Date,
+      lastActivityAt: Date
+    ) => {
+      current.firstActivityAt =
+        current.firstActivityAt === null || current.firstActivityAt > firstActivityAt
+          ? firstActivityAt
+          : current.firstActivityAt;
+      current.lastActivityAt =
+        current.lastActivityAt === null || current.lastActivityAt < lastActivityAt
+          ? lastActivityAt
+          : current.lastActivityAt;
+    };
+
+    const outgoingSettlements =
+      await this.pool.query<CounterpartySettlementAggregateRow>(
+        `
+          SELECT
+            provider_posting.organization_id AS counterparty_organization_id,
+            counterparty.name AS counterparty_name,
+            counterparty.slug AS counterparty_slug,
+            COUNT(*)::text AS settlement_count,
+            COALESCE(SUM(provider_posting.amount_cents), 0)::text AS settled_cents,
+            MIN(ledger_transactions.occurred_at) AS first_activity_at,
+            MAX(ledger_transactions.occurred_at) AS last_activity_at
+          FROM ledger_transactions
+          INNER JOIN ledger_postings AS provider_posting
+            ON provider_posting.transaction_id = ledger_transactions.id
+           AND provider_posting.account_code = 'provider_payable'
+           AND provider_posting.direction = 'credit'
+          INNER JOIN organizations AS counterparty
+            ON counterparty.id = provider_posting.organization_id
+          WHERE ledger_transactions.organization_id = $1
+            AND ledger_transactions.transaction_type = 'job_settlement'
+            AND ledger_transactions.occurred_at >= $2
+            AND ledger_transactions.occurred_at < $3
+          GROUP BY
+            provider_posting.organization_id,
+            counterparty.name,
+            counterparty.slug
+          ORDER BY provider_posting.organization_id ASC
+        `,
+        [organizationId, startDateInclusive, endDateExclusive]
+      );
+
+    for (const row of outgoingSettlements.rows) {
+      const current = ensureExposure({
+        counterpartyOrganizationId: row.counterparty_organization_id,
+        counterpartyOrganizationName: row.counterparty_name,
+        counterpartyOrganizationSlug: row.counterparty_slug
+      });
+      current.outgoingSettlementCount = Number.parseInt(row.settlement_count, 10);
+      current.outgoingSettledCents = Number.parseInt(row.settled_cents, 10);
+      mergeActivityWindow(current, row.first_activity_at, row.last_activity_at);
+    }
+
+    const incomingSettlements =
+      await this.pool.query<CounterpartySettlementAggregateRow>(
+        `
+          SELECT
+            ledger_transactions.organization_id AS counterparty_organization_id,
+            counterparty.name AS counterparty_name,
+            counterparty.slug AS counterparty_slug,
+            COUNT(*)::text AS settlement_count,
+            COALESCE(SUM(provider_posting.amount_cents), 0)::text AS settled_cents,
+            MIN(ledger_transactions.occurred_at) AS first_activity_at,
+            MAX(ledger_transactions.occurred_at) AS last_activity_at
+          FROM ledger_transactions
+          INNER JOIN ledger_postings AS provider_posting
+            ON provider_posting.transaction_id = ledger_transactions.id
+           AND provider_posting.account_code = 'provider_payable'
+           AND provider_posting.direction = 'credit'
+           AND provider_posting.organization_id = $1
+          INNER JOIN organizations AS counterparty
+            ON counterparty.id = ledger_transactions.organization_id
+          WHERE ledger_transactions.transaction_type = 'job_settlement'
+            AND ledger_transactions.occurred_at >= $2
+            AND ledger_transactions.occurred_at < $3
+          GROUP BY
+            ledger_transactions.organization_id,
+            counterparty.name,
+            counterparty.slug
+          ORDER BY ledger_transactions.organization_id ASC
+        `,
+        [organizationId, startDateInclusive, endDateExclusive]
+      );
+
+    for (const row of incomingSettlements.rows) {
+      const current = ensureExposure({
+        counterpartyOrganizationId: row.counterparty_organization_id,
+        counterpartyOrganizationName: row.counterparty_name,
+        counterpartyOrganizationSlug: row.counterparty_slug
+      });
+      current.incomingSettlementCount = Number.parseInt(row.settlement_count, 10);
+      current.incomingSettledCents = Number.parseInt(row.settled_cents, 10);
+      mergeActivityWindow(current, row.first_activity_at, row.last_activity_at);
+    }
+
+    const outgoingUsage = await this.pool.query<CounterpartyUsageAggregateRow>(
+      `
+        SELECT
+          gateway_usage_meter_events.provider_organization_id AS counterparty_organization_id,
+          counterparty.name AS counterparty_name,
+          counterparty.slug AS counterparty_slug,
+          COUNT(*)::text AS usage_event_count,
+          COALESCE(SUM(gateway_usage_meter_events.total_tokens), 0)::text AS usage_total_tokens,
+          MIN(gateway_usage_meter_events.occurred_at) AS first_activity_at,
+          MAX(gateway_usage_meter_events.occurred_at) AS last_activity_at
+        FROM gateway_usage_meter_events
+        INNER JOIN organizations AS counterparty
+          ON counterparty.id = gateway_usage_meter_events.provider_organization_id
+        WHERE gateway_usage_meter_events.customer_organization_id = $1
+          AND gateway_usage_meter_events.occurred_at >= $2
+          AND gateway_usage_meter_events.occurred_at < $3
+        GROUP BY
+          gateway_usage_meter_events.provider_organization_id,
+          counterparty.name,
+          counterparty.slug
+        ORDER BY gateway_usage_meter_events.provider_organization_id ASC
+      `,
+      [organizationId, startDateInclusive, endDateExclusive]
+    );
+
+    for (const row of outgoingUsage.rows) {
+      const current = ensureExposure({
+        counterpartyOrganizationId: row.counterparty_organization_id,
+        counterpartyOrganizationName: row.counterparty_name,
+        counterpartyOrganizationSlug: row.counterparty_slug
+      });
+      current.outgoingUsageEventCount = Number.parseInt(row.usage_event_count, 10);
+      current.outgoingUsageTotalTokens = Number.parseInt(
+        row.usage_total_tokens,
+        10
+      );
+      mergeActivityWindow(current, row.first_activity_at, row.last_activity_at);
+    }
+
+    const incomingUsage = await this.pool.query<CounterpartyUsageAggregateRow>(
+      `
+        SELECT
+          gateway_usage_meter_events.customer_organization_id AS counterparty_organization_id,
+          counterparty.name AS counterparty_name,
+          counterparty.slug AS counterparty_slug,
+          COUNT(*)::text AS usage_event_count,
+          COALESCE(SUM(gateway_usage_meter_events.total_tokens), 0)::text AS usage_total_tokens,
+          MIN(gateway_usage_meter_events.occurred_at) AS first_activity_at,
+          MAX(gateway_usage_meter_events.occurred_at) AS last_activity_at
+        FROM gateway_usage_meter_events
+        INNER JOIN organizations AS counterparty
+          ON counterparty.id = gateway_usage_meter_events.customer_organization_id
+        WHERE gateway_usage_meter_events.provider_organization_id = $1
+          AND gateway_usage_meter_events.occurred_at >= $2
+          AND gateway_usage_meter_events.occurred_at < $3
+        GROUP BY
+          gateway_usage_meter_events.customer_organization_id,
+          counterparty.name,
+          counterparty.slug
+        ORDER BY gateway_usage_meter_events.customer_organization_id ASC
+      `,
+      [organizationId, startDateInclusive, endDateExclusive]
+    );
+
+    for (const row of incomingUsage.rows) {
+      const current = ensureExposure({
+        counterpartyOrganizationId: row.counterparty_organization_id,
+        counterpartyOrganizationName: row.counterparty_name,
+        counterpartyOrganizationSlug: row.counterparty_slug
+      });
+      current.incomingUsageEventCount = Number.parseInt(row.usage_event_count, 10);
+      current.incomingUsageTotalTokens = Number.parseInt(
+        row.usage_total_tokens,
+        10
+      );
+      mergeActivityWindow(current, row.first_activity_at, row.last_activity_at);
+    }
+
+    const sharedMembers = await this.pool.query<SharedMemberAggregateRow>(
+      `
+        SELECT
+          other_members.organization_id AS counterparty_organization_id,
+          counterparty.name AS counterparty_name,
+          counterparty.slug AS counterparty_slug,
+          users.email AS shared_member_email
+        FROM organization_members AS base_members
+        INNER JOIN organization_members AS other_members
+          ON other_members.user_id = base_members.user_id
+         AND other_members.organization_id <> base_members.organization_id
+        INNER JOIN users
+          ON users.id = base_members.user_id
+        INNER JOIN organizations AS counterparty
+          ON counterparty.id = other_members.organization_id
+        WHERE base_members.organization_id = $1
+        ORDER BY other_members.organization_id ASC, users.email ASC
+      `,
+      [organizationId]
+    );
+
+    for (const row of sharedMembers.rows) {
+      const current = ensureExposure({
+        counterpartyOrganizationId: row.counterparty_organization_id,
+        counterpartyOrganizationName: row.counterparty_name,
+        counterpartyOrganizationSlug: row.counterparty_slug
+      });
+      current.sharedMemberEmails.push(row.shared_member_email);
+    }
+
+    return Array.from(exposures.values())
+      .sort((left, right) =>
+        left.counterpartyOrganizationId.localeCompare(
+          right.counterpartyOrganizationId
+        )
+      )
+      .map((exposure) =>
+        FraudGraphCounterpartyExposure.create({
+          organizationId,
+          counterpartyOrganizationId: exposure.counterpartyOrganizationId,
+          counterpartyOrganizationName: exposure.counterpartyOrganizationName,
+          counterpartyOrganizationSlug: exposure.counterpartyOrganizationSlug,
+          sharedMemberEmails: exposure.sharedMemberEmails,
+          outgoingSettlementCount: exposure.outgoingSettlementCount,
+          outgoingSettledUsd: UsdAmount.createFromCents(
+            exposure.outgoingSettledCents
+          ).toUsdString(),
+          outgoingUsageEventCount: exposure.outgoingUsageEventCount,
+          outgoingUsageTotalTokens: exposure.outgoingUsageTotalTokens,
+          incomingSettlementCount: exposure.incomingSettlementCount,
+          incomingSettledUsd: UsdAmount.createFromCents(
+            exposure.incomingSettledCents
+          ).toUsdString(),
+          incomingUsageEventCount: exposure.incomingUsageEventCount,
+          incomingUsageTotalTokens: exposure.incomingUsageTotalTokens,
+          firstActivityAt: exposure.firstActivityAt?.toISOString() ?? null,
+          lastActivityAt: exposure.lastActivityAt?.toISOString() ?? null
+        })
+      );
+  }
+
   public async providerNodeMachineIdExists(
     organizationId: OrganizationId,
     machineId: ProviderMachineId
@@ -1209,6 +2642,133 @@ export class PostgresIdentityRepository
     }
   }
 
+  public async findProviderNodeByOrganization(
+    organizationId: OrganizationId,
+    providerNodeId: ProviderNodeId
+  ): Promise<ProviderNode | null> {
+    const summary = await this.findProviderInventorySummary(
+      organizationId,
+      providerNodeId
+    );
+
+    return summary?.node ?? null;
+  }
+
+  public async createProviderNodeAttestationChallenge(
+    challenge: ProviderNodeAttestationChallenge
+  ): Promise<void> {
+    await this.pool.query(
+      `
+        INSERT INTO provider_node_attestation_challenges (
+          id,
+          provider_node_id,
+          nonce,
+          created_at,
+          expires_at,
+          used_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `,
+      [
+        challenge.id,
+        challenge.providerNodeId.value,
+        challenge.nonce,
+        challenge.createdAt,
+        challenge.expiresAt,
+        challenge.usedAt
+      ]
+    );
+  }
+
+  public async findProviderNodeAttestationChallenge(
+    providerNodeId: ProviderNodeId,
+    challengeId: string
+  ): Promise<ProviderNodeAttestationChallenge | null> {
+    const result = await this.pool.query<ProviderNodeAttestationChallengeRow>(
+      `
+        SELECT id, provider_node_id, nonce, created_at, expires_at, used_at
+        FROM provider_node_attestation_challenges
+        WHERE provider_node_id = $1
+          AND id = $2
+      `,
+      [providerNodeId.value, challengeId]
+    );
+
+    const row = result.rows[0];
+
+    if (!row) {
+      return null;
+    }
+
+    return ProviderNodeAttestationChallenge.rehydrate({
+      id: row.id,
+      providerNodeId: row.provider_node_id,
+      nonce: row.nonce,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      usedAt: row.used_at
+    });
+  }
+
+  public async markProviderNodeAttestationChallengeUsed(
+    providerNodeId: ProviderNodeId,
+    challengeId: string,
+    usedAt: Date
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+        UPDATE provider_node_attestation_challenges
+        SET used_at = $3
+        WHERE provider_node_id = $1
+          AND id = $2
+          AND used_at IS NULL
+      `,
+      [providerNodeId.value, challengeId, usedAt]
+    );
+
+    return (result.rowCount ?? 0) === 1;
+  }
+
+  public async createProviderNodeAttestationRecord(
+    record: ProviderNodeAttestationRecord
+  ): Promise<void> {
+    const snapshot = record.toSnapshot();
+
+    await this.pool.query(
+      `
+        INSERT INTO provider_node_attestations (
+          id,
+          provider_node_id,
+          challenge_id,
+          attestation_type,
+          attestation_public_key_fingerprint,
+          quoted_at,
+          secure_boot_enabled,
+          pcr_values,
+          verified,
+          failure_reason,
+          recorded_at,
+          expires_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
+      `,
+      [
+        snapshot.id,
+        snapshot.providerNodeId,
+        snapshot.challengeId,
+        snapshot.attestationType,
+        snapshot.attestationPublicKeyFingerprint,
+        new Date(snapshot.quotedAt),
+        snapshot.secureBootEnabled,
+        JSON.stringify(snapshot.pcrValues),
+        snapshot.verified,
+        snapshot.failureReason,
+        new Date(snapshot.recordedAt),
+        snapshot.expiresAt === null ? null : new Date(snapshot.expiresAt)
+      ]
+    );
+  }
+
   public async upsertProviderNodeRoutingProfile(
     routingProfile: ProviderNodeRoutingProfile
   ): Promise<void> {
@@ -1233,6 +2793,51 @@ export class PostgresIdentityRepository
         routingProfile.updatedAt
       ]
     );
+  }
+
+  public async replaceProviderNodeWarmModelStates(
+    providerNodeId: ProviderNodeId,
+    warmModelStates: readonly ProviderWarmModelState[]
+  ): Promise<void> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `
+          DELETE FROM provider_node_warm_model_states
+          WHERE provider_node_id = $1
+        `,
+        [providerNodeId.value]
+      );
+
+      for (const warmModelState of warmModelStates) {
+        await client.query(
+          `
+            INSERT INTO provider_node_warm_model_states (
+              provider_node_id,
+              approved_model_alias,
+              declared_at,
+              expires_at
+            )
+            VALUES ($1, $2, $3, $4)
+          `,
+          [
+            providerNodeId.value,
+            warmModelState.approvedModelAlias,
+            warmModelState.declaredAt,
+            warmModelState.expiresAt
+          ]
+        );
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   public async providerNodeExists(
@@ -1343,13 +2948,35 @@ export class PostgresIdentityRepository
           region,
           minimum_trust_tier,
           max_price_usd_per_hour,
+          approved_model_alias,
           candidate_count,
           selected_provider_node_id,
           selected_provider_organization_id,
+          selection_score,
+          price_performance_score,
+          warm_cache_matched,
           rejection_reason,
           created_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9,
+          $10,
+          $11,
+          $12,
+          $13,
+          $14,
+          $15,
+          $16,
+          $17
+        )
       `,
       this.toPlacementDecisionLogParameters(snapshot)
     );
@@ -1419,11 +3046,66 @@ export class PostgresIdentityRepository
       `,
       [organizationId.value, providerNodeId.value]
     );
+    const attestationResult = await this.pool.query<ProviderNodeAttestationRow>(
+      `
+        SELECT
+          id,
+          provider_node_id,
+          challenge_id,
+          attestation_type,
+          attestation_public_key_fingerprint,
+          quoted_at,
+          secure_boot_enabled,
+          pcr_values,
+          verified,
+          failure_reason,
+          recorded_at,
+          expires_at
+        FROM provider_node_attestations
+        WHERE provider_node_id = $1
+        ORDER BY recorded_at DESC
+      `,
+      [providerNodeId.value]
+    );
+    const challengeResult =
+      await this.pool.query<ProviderNodeAttestationChallengeRow>(
+        `
+          SELECT
+            id,
+            provider_node_id,
+            nonce,
+            created_at,
+            expires_at,
+            used_at
+          FROM provider_node_attestation_challenges
+          WHERE provider_node_id = $1
+          ORDER BY created_at DESC
+        `,
+        [providerNodeId.value]
+      );
+    const warmModelStateResult =
+      await this.pool.query<ProviderNodeWarmModelStateRow>(
+        `
+          SELECT
+            provider_node_id,
+            approved_model_alias,
+            declared_at,
+            expires_at
+          FROM provider_node_warm_model_states
+          WHERE provider_node_id = $1
+            AND expires_at > $2
+          ORDER BY approved_model_alias ASC
+        `,
+        [providerNodeId.value, this.clock()]
+      );
 
     return this.toProviderInventorySummary(
       nodeRow,
       gpuResult.rows,
-      benchmarkResult.rows[0]
+      benchmarkResult.rows[0],
+      attestationResult.rows,
+      challengeResult.rows,
+      warmModelStateResult.rows
     );
   }
 
@@ -1472,8 +3154,17 @@ export class PostgresIdentityRepository
       | ProviderNodeBenchmarkRow
       | ProviderBenchmarkReportSnapshot
       | null
-      | undefined
+      | undefined,
+    attestationRows: readonly ProviderNodeAttestationRow[],
+    challengeRows: readonly ProviderNodeAttestationChallengeRow[],
+    warmModelStateRows: readonly ProviderNodeWarmModelStateRow[]
   ): ProviderInventorySummary {
+    const attestation = this.buildProviderNodeAttestationSnapshot(
+      nodeRow.trust_tier,
+      attestationRows,
+      challengeRows
+    );
+
     const providerNode = ProviderNode.rehydrate({
       id: nodeRow.id,
       organizationId: nodeRow.organization_id,
@@ -1493,6 +3184,7 @@ export class PostgresIdentityRepository
           interconnect: gpu.interconnect
         }))
       },
+      attestation,
       routingProfile:
         nodeRow.endpoint_url === null ||
         nodeRow.price_floor_usd_per_hour === null ||
@@ -1504,6 +3196,13 @@ export class PostgresIdentityRepository
               priceFloorUsdPerHour: nodeRow.price_floor_usd_per_hour,
               updatedAt: nodeRow.routing_profile_updated_at
             }).toSnapshot(),
+      routingState: {
+        warmModelAliases: warmModelStateRows.map((warmModelState) => ({
+          approvedModelAlias: warmModelState.approved_model_alias,
+          declaredAt: warmModelState.declared_at.toISOString(),
+          expiresAt: warmModelState.expires_at.toISOString()
+        }))
+      },
       enrolledAt: nodeRow.enrolled_at
     });
 
@@ -1513,6 +3212,86 @@ export class PostgresIdentityRepository
         ? null
         : this.toProviderBenchmarkReport(latestBenchmark)
     );
+  }
+
+  private buildProviderNodeAttestationSnapshot(
+    baseTrustTier: string,
+    attestationRows: readonly ProviderNodeAttestationRow[],
+    challengeRows: readonly ProviderNodeAttestationChallengeRow[]
+  ): ProviderNodeAttestationSnapshot {
+    const now = this.clock();
+    const latestAttestation = attestationRows[0];
+    const latestChallenge = challengeRows[0];
+
+    if (latestAttestation?.verified === true && latestAttestation.expires_at) {
+      const status =
+        latestAttestation.expires_at.getTime() > now.getTime()
+          ? "verified"
+          : "expired";
+
+      return {
+        status,
+        lastAttestedAt: latestAttestation.recorded_at.toISOString(),
+        attestationExpiresAt: latestAttestation.expires_at.toISOString(),
+        attestationType: latestAttestation.attestation_type as "tpm_quote_v1",
+        effectiveTrustTier: resolveEffectiveProviderTrustTier({
+          baseTrustTier: baseTrustTier as
+            | "t0_community"
+            | "t1_vetted"
+            | "t2_attested",
+          attestationStatus: status
+        })
+      };
+    }
+
+    if (
+      latestChallenge?.used_at === null &&
+      latestChallenge.expires_at.getTime() > now.getTime()
+    ) {
+      return {
+        status: "pending",
+        lastAttestedAt: null,
+        attestationExpiresAt: latestChallenge.expires_at.toISOString(),
+        attestationType: null,
+        effectiveTrustTier: resolveEffectiveProviderTrustTier({
+          baseTrustTier: baseTrustTier as
+            | "t0_community"
+            | "t1_vetted"
+            | "t2_attested",
+          attestationStatus: "pending"
+        })
+      };
+    }
+
+    if (latestAttestation?.verified === false) {
+      return {
+        status: "failed",
+        lastAttestedAt: null,
+        attestationExpiresAt: null,
+        attestationType: latestAttestation.attestation_type as "tpm_quote_v1",
+        effectiveTrustTier: resolveEffectiveProviderTrustTier({
+          baseTrustTier: baseTrustTier as
+            | "t0_community"
+            | "t1_vetted"
+            | "t2_attested",
+          attestationStatus: "failed"
+        })
+      };
+    }
+
+    return {
+      status: "none",
+      lastAttestedAt: null,
+      attestationExpiresAt: null,
+      attestationType: null,
+      effectiveTrustTier: resolveEffectiveProviderTrustTier({
+        baseTrustTier: baseTrustTier as
+          | "t0_community"
+          | "t1_vetted"
+          | "t2_attested",
+        attestationStatus: "none"
+      })
+    };
   }
 
   private toProviderBenchmarkReport(
@@ -1614,6 +3393,61 @@ export class PostgresIdentityRepository
       `,
       benchmarkParams
     );
+    const attestationResult = await this.pool.query<ProviderNodeAttestationRow>(
+      `
+        SELECT
+          a.id,
+          a.provider_node_id,
+          a.challenge_id,
+          a.attestation_type,
+          a.attestation_public_key_fingerprint,
+          a.quoted_at,
+          a.secure_boot_enabled,
+          a.pcr_values,
+          a.verified,
+          a.failure_reason,
+          a.recorded_at,
+          a.expires_at
+        FROM provider_node_attestations AS a
+        INNER JOIN provider_nodes AS n ON n.id = a.provider_node_id
+        ${inventoryFilter}
+        ORDER BY a.provider_node_id ASC, a.recorded_at DESC
+      `,
+      benchmarkParams
+    );
+    const challengeResult =
+      await this.pool.query<ProviderNodeAttestationChallengeRow>(
+        `
+          SELECT
+            c.id,
+            c.provider_node_id,
+            c.nonce,
+            c.created_at,
+            c.expires_at,
+            c.used_at
+          FROM provider_node_attestation_challenges AS c
+          INNER JOIN provider_nodes AS n ON n.id = c.provider_node_id
+          ${inventoryFilter}
+          ORDER BY c.provider_node_id ASC, c.created_at DESC
+        `,
+        benchmarkParams
+      );
+    const warmModelStateResult =
+      await this.pool.query<ProviderNodeWarmModelStateRow>(
+        `
+          SELECT
+            s.provider_node_id,
+            s.approved_model_alias,
+            s.declared_at,
+            s.expires_at
+          FROM provider_node_warm_model_states AS s
+          INNER JOIN provider_nodes AS n ON n.id = s.provider_node_id
+          ${inventoryFilter}
+          ${organizationId === null ? "WHERE" : "AND"} s.expires_at > $${String(benchmarkParams.length + 1)}
+          ORDER BY s.provider_node_id ASC, s.approved_model_alias ASC
+        `,
+        [...benchmarkParams, this.clock()]
+      );
 
     const gpusByNodeId = new Map<string, ProviderNodeGpuRow[]>();
 
@@ -1626,6 +3460,18 @@ export class PostgresIdentityRepository
     const latestBenchmarkByNodeId = new Map<
       string,
       ProviderBenchmarkReportSnapshot
+    >();
+    const attestationsByNodeId = new Map<
+      string,
+      ProviderNodeAttestationRow[]
+    >();
+    const challengesByNodeId = new Map<
+      string,
+      ProviderNodeAttestationChallengeRow[]
+    >();
+    const warmModelStatesByNodeId = new Map<
+      string,
+      ProviderNodeWarmModelStateRow[]
     >();
 
     for (const row of benchmarkResult.rows) {
@@ -1644,11 +3490,32 @@ export class PostgresIdentityRepository
       });
     }
 
+    for (const row of attestationResult.rows) {
+      const rows = attestationsByNodeId.get(row.provider_node_id) ?? [];
+      rows.push(row);
+      attestationsByNodeId.set(row.provider_node_id, rows);
+    }
+
+    for (const row of challengeResult.rows) {
+      const rows = challengesByNodeId.get(row.provider_node_id) ?? [];
+      rows.push(row);
+      challengesByNodeId.set(row.provider_node_id, rows);
+    }
+
+    for (const row of warmModelStateResult.rows) {
+      const rows = warmModelStatesByNodeId.get(row.provider_node_id) ?? [];
+      rows.push(row);
+      warmModelStatesByNodeId.set(row.provider_node_id, rows);
+    }
+
     return nodeResult.rows.map((row) =>
       this.toProviderInventorySummary(
         row,
         gpusByNodeId.get(row.id) ?? [],
-        latestBenchmarkByNodeId.get(row.id)
+        latestBenchmarkByNodeId.get(row.id),
+        attestationsByNodeId.get(row.id) ?? [],
+        challengesByNodeId.get(row.id) ?? [],
+        warmModelStatesByNodeId.get(row.id) ?? []
       )
     );
   }
@@ -1664,9 +3531,13 @@ export class PostgresIdentityRepository
     string,
     string,
     number,
+    string | null,
     number,
     string | null,
     string | null,
+    number | null,
+    number | null,
+    boolean | null,
     string | null,
     Date
   ] {
@@ -1679,9 +3550,13 @@ export class PostgresIdentityRepository
       snapshot.filters.region,
       snapshot.filters.minimumTrustTier,
       snapshot.filters.maxPriceUsdPerHour,
+      snapshot.approvedModelAlias,
       snapshot.candidateCount,
       snapshot.selectedProviderNodeId,
       snapshot.selectedProviderOrganizationId,
+      snapshot.selectionScore,
+      snapshot.pricePerformanceScore,
+      snapshot.warmCacheMatched,
       snapshot.rejectionReason,
       new Date(snapshot.createdAt)
     ];
@@ -1689,6 +3564,57 @@ export class PostgresIdentityRepository
 
   private toUtcDateKey(input: Date): string {
     return input.toISOString().slice(0, 10);
+  }
+
+  private mapProviderPayoutAccountRow(
+    row: ProviderPayoutAccountRow | undefined
+  ): ProviderPayoutAccount | null {
+    if (row === undefined) {
+      return null;
+    }
+
+    return ProviderPayoutAccount.create({
+      organizationId: row.organization_id,
+      stripeAccountId: row.stripe_account_id,
+      chargesEnabled: row.charges_enabled,
+      payoutsEnabled: row.payouts_enabled,
+      detailsSubmitted: row.details_submitted,
+      country: row.country,
+      defaultCurrency: row.default_currency,
+      requirementsCurrentlyDue: row.requirements_currently_due,
+      requirementsEventuallyDue: row.requirements_eventually_due,
+      lastStripeSyncAt: row.last_stripe_sync_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    });
+  }
+
+  private mapProviderPayoutDisbursementRow(
+    row: ProviderPayoutDisbursementRow | undefined
+  ): ProviderPayoutDisbursement | null {
+    if (row === undefined) {
+      return null;
+    }
+
+    return ProviderPayoutDisbursement.rehydrate({
+      id: row.id,
+      payoutRunId: row.payout_run_id,
+      providerOrganizationId: row.provider_organization_id,
+      stripeAccountId: row.stripe_account_id,
+      stripeTransferId: row.stripe_transfer_id,
+      stripePayoutId: row.stripe_payout_id,
+      idempotencyKey: row.idempotency_key,
+      amountCents: Number.parseInt(row.amount_cents, 10),
+      currency: row.currency,
+      status: row.status,
+      failureCode: row.failure_code,
+      failureMessage: row.failure_message,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      paidAt: row.paid_at,
+      failedAt: row.failed_at,
+      canceledAt: row.canceled_at
+    });
   }
 
   private calculateP95(values: readonly number[]): number {

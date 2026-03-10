@@ -12,9 +12,12 @@ export interface GatewayUsageMeterEventSnapshot {
   providerOrganizationId: string;
   providerNodeId: string;
   environment: OrganizationApiKeyEnvironment;
+  requestKind: string;
   approvedModelAlias: string;
   manifestId: string;
   decisionLogId: string;
+  batchId?: string | null;
+  batchItemId?: string | null;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -29,9 +32,12 @@ export class GatewayUsageMeterEvent {
     public readonly providerOrganizationId: OrganizationId,
     public readonly providerNodeId: string,
     public readonly environment: OrganizationApiKeyEnvironment,
+    public readonly requestKind: "chat.completions" | "embeddings",
     public readonly approvedModelAlias: string,
     public readonly manifestId: string,
     public readonly decisionLogId: string,
+    public readonly batchId: string | null,
+    public readonly batchItemId: string | null,
     public readonly promptTokens: number,
     public readonly completionTokens: number,
     public readonly totalTokens: number,
@@ -43,6 +49,7 @@ export class GatewayUsageMeterEvent {
   ): GatewayUsageMeterEvent {
     const approvedModelAlias = input.approvedModelAlias.trim();
     const manifestId = input.manifestId.trim();
+    const requestKind = input.requestKind;
 
     if (approvedModelAlias.length < 3 || approvedModelAlias.length > 120) {
       throw new DomainValidationError(
@@ -53,6 +60,12 @@ export class GatewayUsageMeterEvent {
     if (manifestId.length < 3 || manifestId.length > 120) {
       throw new DomainValidationError(
         "Manifest identifiers must be between 3 and 120 characters."
+      );
+    }
+
+    if (requestKind !== "chat.completions" && requestKind !== "embeddings") {
+      throw new DomainValidationError(
+        "Gateway usage request kind must be chat.completions or embeddings."
       );
     }
 
@@ -88,9 +101,12 @@ export class GatewayUsageMeterEvent {
       OrganizationId.create(input.providerOrganizationId),
       input.providerNodeId,
       parseOrganizationApiKeyEnvironment(input.environment),
+      requestKind,
       approvedModelAlias,
       manifestId,
       input.decisionLogId,
+      input.batchId ?? null,
+      input.batchItemId ?? null,
       input.promptTokens,
       input.completionTokens,
       input.totalTokens,
@@ -106,9 +122,12 @@ export class GatewayUsageMeterEvent {
       providerOrganizationId: this.providerOrganizationId.value,
       providerNodeId: this.providerNodeId,
       environment: this.environment,
+      requestKind: this.requestKind,
       approvedModelAlias: this.approvedModelAlias,
       manifestId: this.manifestId,
       decisionLogId: this.decisionLogId,
+      batchId: this.batchId,
+      batchItemId: this.batchItemId,
       promptTokens: this.promptTokens,
       completionTokens: this.completionTokens,
       totalTokens: this.totalTokens,

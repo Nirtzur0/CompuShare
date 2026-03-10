@@ -74,6 +74,14 @@ function buildPlacementApp(
     getProviderNodeDetailUseCase: {
       execute: () => Promise.reject(new Error("unused detail path"))
     } as unknown as GetProviderNodeDetailUseCase,
+    issueProviderNodeAttestationChallengeUseCase: {
+      execute: () =>
+        Promise.reject(new Error("unused provider attestation challenge path"))
+    },
+    submitProviderNodeAttestationUseCase: {
+      execute: () =>
+        Promise.reject(new Error("unused provider attestation submit path"))
+    },
     upsertProviderNodeRoutingProfileUseCase: {
       execute: () => Promise.reject(new Error("unused routing path"))
     } as unknown as UpsertProviderNodeRoutingProfileUseCase,
@@ -121,9 +129,12 @@ describe("placement routes", () => {
   });
 
   it("lists placement candidates for a scoped buyer request", async () => {
+    const requests: unknown[] = [];
     const app = buildPlacementApp(
-      () =>
-        Promise.resolve({
+      (request) => {
+        requests.push(request);
+
+        return Promise.resolve({
           candidates: [
             {
               providerNodeId: "4903f4af-fdd1-44fd-b2a0-a7d6106db1d9",
@@ -132,16 +143,36 @@ describe("placement routes", () => {
               region: "eu-central-1",
               trustTier: "t1_vetted",
               priceFloorUsdPerHour: 5.25,
+              score: 84.61,
+              scoreBreakdown: {
+                pricePerformanceScore: 73.57,
+                warmCacheMultiplier: 1.15,
+                benchmarkThroughputTokensPerSecond: 742.5,
+                priceFloorUsdPerHour: 5.25
+              },
+              warmCache: {
+                matched: true,
+                expiresAt: "2026-03-09T20:10:00.000Z"
+              },
               matchedGpu: {
                 model: "NVIDIA A100",
                 vramGb: 80,
                 count: 4,
                 interconnect: "nvlink"
               },
-              latestBenchmark: null
+              latestBenchmark: {
+                id: "8103f4af-fdd1-44fd-b2a0-a7d6106db1d9",
+                providerNodeId: "4903f4af-fdd1-44fd-b2a0-a7d6106db1d9",
+                gpuClass: "NVIDIA A100",
+                vramGb: 80,
+                throughputTokensPerSecond: 742.5,
+                driverVersion: "550.54.14",
+                recordedAt: "2026-03-09T20:00:00.000Z"
+              }
             }
           ]
-        }),
+        });
+      },
       undefined,
       () =>
         Promise.resolve({
@@ -173,7 +204,8 @@ describe("placement routes", () => {
         minVramGb: 80,
         region: "eu-central-1",
         minimumTrustTier: "t1_vetted",
-        maxPriceUsdPerHour: 7.5
+        maxPriceUsdPerHour: 7.5,
+        approvedModelAlias: "openai/gpt-oss-120b-like"
       }
     });
 
@@ -182,10 +214,24 @@ describe("placement routes", () => {
       candidates: [
         {
           providerNodeId: "4903f4af-fdd1-44fd-b2a0-a7d6106db1d9",
-          priceFloorUsdPerHour: 5.25
+          priceFloorUsdPerHour: 5.25,
+          warmCache: {
+            matched: true
+          }
         }
       ]
     });
+    expect(requests).toEqual([
+      {
+        organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+        gpuClass: "NVIDIA A100",
+        minVramGb: 80,
+        region: "eu-central-1",
+        minimumTrustTier: "t1_vetted",
+        maxPriceUsdPerHour: 7.5,
+        approvedModelAlias: "openai/gpt-oss-120b-like"
+      }
+    ]);
   });
 
   it("requires an API key header", async () => {
@@ -664,5 +710,161 @@ describe("placement routes", () => {
 
     expect(capabilityResponse.statusCode).toBe(403);
     expect(orgMissingResponse.statusCode).toBe(404);
+  });
+
+  it("forwards approved model aliases during sync placement", async () => {
+    const requests: unknown[] = [];
+    const app = buildPlacementApp(
+      () => Promise.resolve({ candidates: [] }),
+      (request) => {
+        requests.push(request);
+
+        return Promise.resolve({
+          decisionLogId: "240f21c5-6a71-4e68-9dbb-b93a663f679c",
+          candidateCount: 1,
+          selection: {
+            providerNodeId: "4903f4af-fdd1-44fd-b2a0-a7d6106db1d9",
+            providerOrganizationId: "938fbcc1-d9f2-4943-a4e7-132d11136e14",
+            providerNodeLabel: "Matched Node",
+            endpointUrl: "https://provider.example.com/v1/chat/completions",
+            region: "eu-central-1",
+            trustTier: "t1_vetted",
+            priceFloorUsdPerHour: 5.25,
+            score: 84.61,
+            scoreBreakdown: {
+              pricePerformanceScore: 73.57,
+              warmCacheMultiplier: 1.15,
+              benchmarkThroughputTokensPerSecond: 742.5,
+              priceFloorUsdPerHour: 5.25
+            },
+            warmCache: {
+              matched: true,
+              expiresAt: "2026-03-09T20:10:00.000Z"
+            },
+            matchedGpu: {
+              model: "NVIDIA A100",
+              vramGb: 80,
+              count: 4,
+              interconnect: "nvlink"
+            },
+            latestBenchmark: null
+          }
+        });
+      },
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Buyer key",
+            secretPrefix: "csk_buyer___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        })
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/placements/sync",
+      headers: {
+        "x-api-key": "csk_buyer_secret_value_000000"
+      },
+      payload: {
+        gpuClass: "NVIDIA A100",
+        minVramGb: 80,
+        region: "eu-central-1",
+        minimumTrustTier: "t1_vetted",
+        maxPriceUsdPerHour: 7.5,
+        approvedModelAlias: "openai/gpt-oss-120b-like"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(requests).toEqual([
+      {
+        organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+        environment: "production",
+        gpuClass: "NVIDIA A100",
+        minVramGb: 80,
+        region: "eu-central-1",
+        minimumTrustTier: "t1_vetted",
+        maxPriceUsdPerHour: 7.5,
+        approvedModelAlias: "openai/gpt-oss-120b-like"
+      }
+    ]);
+  });
+
+  it("maps sync placement authentication and domain validation failures", async () => {
+    const authenticationApp = buildPlacementApp(
+      () => Promise.resolve({ candidates: [] }),
+      () => Promise.reject(new Error("unused sync path")),
+      () => Promise.reject(new OrganizationApiKeyAuthenticationError())
+    );
+    const validationApp = buildPlacementApp(
+      () => Promise.resolve({ candidates: [] }),
+      () => Promise.reject(new DomainValidationError("Bad sync placement.")),
+      () =>
+        Promise.resolve({
+          authorized: true,
+          scope: {
+            organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+            environment: "production"
+          },
+          apiKey: {
+            id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+            label: "Buyer key",
+            secretPrefix: "csk_buyer___",
+            issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+            createdAt: "2026-03-09T00:00:00.000Z",
+            lastUsedAt: "2026-03-09T20:00:00.000Z"
+          }
+        })
+    );
+    apps.push(authenticationApp, validationApp);
+
+    const authenticationResponse = await authenticationApp.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/placements/sync",
+      headers: {
+        "x-api-key": "csk_buyer_secret_value_000000"
+      },
+      payload: {
+        gpuClass: "NVIDIA A100",
+        minVramGb: 80,
+        region: "eu-central-1",
+        minimumTrustTier: "t1_vetted",
+        maxPriceUsdPerHour: 7.5
+      }
+    });
+    const validationResponse = await validationApp.inject({
+      method: "POST",
+      url: "/v1/organizations/0d6b1676-f112-41d6-9f98-27277a0dba79/environments/production/placements/sync",
+      headers: {
+        "x-api-key": "csk_buyer_secret_value_000000"
+      },
+      payload: {
+        gpuClass: "NVIDIA A100",
+        minVramGb: 80,
+        region: "eu-central-1",
+        minimumTrustTier: "t1_vetted",
+        maxPriceUsdPerHour: 7.5
+      }
+    });
+
+    expect(authenticationResponse.statusCode).toBe(401);
+    expect(authenticationResponse.json()).toMatchObject({
+      error: "ORGANIZATION_API_KEY_AUTHENTICATION_ERROR"
+    });
+    expect(validationResponse.statusCode).toBe(400);
+    expect(validationResponse.json()).toMatchObject({
+      error: "DOMAIN_VALIDATION_ERROR"
+    });
   });
 });

@@ -9,7 +9,11 @@ const settingsSchema = z.object({
     .min(32, "WORKLOAD_BUNDLE_SIGNING_KEY must be at least 32 characters."),
   workloadBundleSigningKeyId: z
     .string()
-    .min(3, "WORKLOAD_BUNDLE_SIGNING_KEY_ID is required.")
+    .min(3, "WORKLOAD_BUNDLE_SIGNING_KEY_ID is required."),
+  stripeSecretKey: z.string().optional(),
+  stripeWebhookSecret: z.string().optional(),
+  stripeConnectReturnUrlBase: z.url().optional(),
+  stripeConnectRefreshUrlBase: z.url().optional()
 });
 
 export type ControlPlaneSettings = z.infer<typeof settingsSchema>;
@@ -22,6 +26,10 @@ export function loadControlPlaneSettings(
     port: environment.PORT,
     databaseUrl: environment.DATABASE_URL,
     workloadBundleSigningKey: environment.WORKLOAD_BUNDLE_SIGNING_KEY,
-    workloadBundleSigningKeyId: environment.WORKLOAD_BUNDLE_SIGNING_KEY_ID
+    workloadBundleSigningKeyId: environment.WORKLOAD_BUNDLE_SIGNING_KEY_ID,
+    stripeSecretKey: environment.STRIPE_SECRET_KEY,
+    stripeWebhookSecret: environment.STRIPE_WEBHOOK_SECRET,
+    stripeConnectReturnUrlBase: environment.STRIPE_CONNECT_RETURN_URL_BASE,
+    stripeConnectRefreshUrlBase: environment.STRIPE_CONNECT_REFRESH_URL_BASE
   });
 }

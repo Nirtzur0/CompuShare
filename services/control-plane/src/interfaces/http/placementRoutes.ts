@@ -23,7 +23,8 @@ const placementCandidateRequestSchema = z.object({
   minVramGb: z.int().min(1).max(4096),
   region: z.string().min(2).max(64),
   minimumTrustTier: z.enum(["t0_community", "t1_vetted", "t2_attested"]),
-  maxPriceUsdPerHour: z.number().positive().max(1_000_000)
+  maxPriceUsdPerHour: z.number().positive().max(1_000_000),
+  approvedModelAlias: z.string().min(3).max(120).optional()
 });
 
 export function registerPlacementRoutes(
@@ -89,7 +90,10 @@ export function registerPlacementRoutes(
           minVramGb: parsedBody.data.minVramGb,
           region: parsedBody.data.region,
           minimumTrustTier: parsedBody.data.minimumTrustTier,
-          maxPriceUsdPerHour: parsedBody.data.maxPriceUsdPerHour
+          maxPriceUsdPerHour: parsedBody.data.maxPriceUsdPerHour,
+          ...(parsedBody.data.approvedModelAlias === undefined
+            ? {}
+            : { approvedModelAlias: parsedBody.data.approvedModelAlias })
         });
 
         return await reply.status(200).send(response);
@@ -186,7 +190,10 @@ export function registerPlacementRoutes(
           minVramGb: parsedBody.data.minVramGb,
           region: parsedBody.data.region,
           minimumTrustTier: parsedBody.data.minimumTrustTier,
-          maxPriceUsdPerHour: parsedBody.data.maxPriceUsdPerHour
+          maxPriceUsdPerHour: parsedBody.data.maxPriceUsdPerHour,
+          ...(parsedBody.data.approvedModelAlias === undefined
+            ? {}
+            : { approvedModelAlias: parsedBody.data.approvedModelAlias })
         });
 
         return await reply.status(200).send(response);

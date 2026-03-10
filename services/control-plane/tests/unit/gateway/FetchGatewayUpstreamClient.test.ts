@@ -109,4 +109,50 @@ describe("FetchGatewayUpstreamClient", () => {
       })
     ).rejects.toBeInstanceOf(GatewayUpstreamRequestError);
   });
+
+  it("dispatches an embedding request and validates the response", async () => {
+    const client = new FetchGatewayUpstreamClient((input, init) => {
+      expect(input).toBe("https://provider.example.com/v1/embeddings");
+      expect(init?.method).toBe("POST");
+      expect(init?.headers).toMatchObject({
+        "content-type": "application/json",
+        "x-compushare-workload-signature": "abc123"
+      });
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            object: "list",
+            data: [
+              {
+                object: "embedding",
+                index: 0,
+                embedding: [0.1, 0.2, 0.3]
+              }
+            ],
+            model: "BAAI/bge-small-en-v1.5",
+            usage: {
+              prompt_tokens: 3,
+              total_tokens: 3
+            }
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      );
+    });
+
+    const response = await client.dispatchEmbedding({
+      endpointUrl: "https://provider.example.com/v1/embeddings",
+      request: {
+        model: "BAAI/bge-small-en-v1.5",
+        input: "hello"
+      },
+      headers: {
+        "x-compushare-workload-signature": "abc123"
+      }
+    });
+
+    expect(response.usage.total_tokens).toBe(3);
+    expect(response.data[0]?.embedding).toEqual([0.1, 0.2, 0.3]);
+  });
 });

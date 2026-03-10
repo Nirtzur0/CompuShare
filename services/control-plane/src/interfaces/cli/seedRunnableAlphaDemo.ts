@@ -11,8 +11,11 @@ import { CreateOrganizationUseCase } from "../../application/identity/CreateOrga
 import { IssueOrganizationApiKeyUseCase } from "../../application/identity/IssueOrganizationApiKeyUseCase.js";
 import { ResolveSyncPlacementUseCase } from "../../application/placement/ResolveSyncPlacementUseCase.js";
 import { EnrollProviderNodeUseCase } from "../../application/provider/EnrollProviderNodeUseCase.js";
+import { ReplaceProviderNodeRoutingStateUseCase } from "../../application/provider/ReplaceProviderNodeRoutingStateUseCase.js";
 import { RecordProviderBenchmarkUseCase } from "../../application/provider/RecordProviderBenchmarkUseCase.js";
 import { UpsertProviderNodeRoutingProfileUseCase } from "../../application/provider/UpsertProviderNodeRoutingProfileUseCase.js";
+import { PlacementScoringPolicy } from "../../config/PlacementScoringPolicy.js";
+import { InMemoryApprovedChatModelCatalog } from "../../infrastructure/gateway/InMemoryApprovedChatModelCatalog.js";
 import { loadDemoSeedSettings } from "../../config/DemoSeedSettings.js";
 import { StructuredConsoleAuditLog } from "../../infrastructure/observability/StructuredConsoleAuditLog.js";
 import { IdentitySchemaInitializer } from "../../infrastructure/persistence/postgres/IdentitySchemaInitializer.js";
@@ -31,7 +34,14 @@ export function formatSeedRunnableAlphaDemoSummary(
     "Seeded runnable alpha demo data.",
     `Buyer dashboard: ${result.buyer.dashboardUrl}`,
     `Provider dashboard: ${result.provider.dashboardUrl}`,
+    `Provider pricing simulator: ${result.provider.pricingDashboardUrl}`,
     `Gateway demo: ${result.gatewayDemo.curlCommand}`,
+    `Embeddings demo: ${result.embeddingDemo.curlCommand}`,
+    `Batch input sample: printf '%s\\n' '${result.batchDemo.inputJsonl.replaceAll("'", "'\\''")}' > ${result.batchDemo.inputFilePath}`,
+    `Batch file upload: ${result.batchDemo.uploadCurlCommand}`,
+    `Batch create: ${result.batchDemo.createCurlCommand}`,
+    `Batch get: ${result.batchDemo.getCurlCommand}`,
+    `Batch worker: ${result.batchDemo.workerCommand}`,
     `Buyer API key: ${result.buyer.apiKey.secret}`,
     `Provider API key: ${result.provider.apiKey.secret}`,
     `Provider node: ${result.provider.node.id}`,
@@ -50,6 +60,10 @@ export async function seedRunnableAlphaDemoCli(
   gatewayDemo: Awaited<
     ReturnType<SeedRunnableAlphaDemo["execute"]>
   >["gatewayDemo"];
+  embeddingDemo: Awaited<
+    ReturnType<SeedRunnableAlphaDemo["execute"]>
+  >["embeddingDemo"];
+  batchDemo: Awaited<ReturnType<SeedRunnableAlphaDemo["execute"]>>["batchDemo"];
   buyer: Awaited<ReturnType<SeedRunnableAlphaDemo["execute"]>>["buyer"];
   provider: Awaited<ReturnType<SeedRunnableAlphaDemo["execute"]>>["provider"];
 }> {
@@ -60,8 +74,11 @@ export async function seedRunnableAlphaDemoCli(
     const schemaInitializer = new IdentitySchemaInitializer(pool);
     await schemaInitializer.ensureSchema();
 
-    const repository = new PostgresIdentityRepository(pool);
+    const repository = new PostgresIdentityRepository(pool, options.clock);
     const auditLog = new StructuredConsoleAuditLog();
+    const approvedChatModelCatalog =
+      InMemoryApprovedChatModelCatalog.createDefault();
+    const placementScoringPolicy = PlacementScoringPolicy.createDefault();
     let apiKeySequence = 0;
     const useCase = new SeedRunnableAlphaDemo(
       new CreateOrganizationUseCase(repository, auditLog, options.clock),
@@ -77,6 +94,13 @@ export async function seedRunnableAlphaDemoCli(
       ),
       new EnrollProviderNodeUseCase(repository, auditLog, options.clock),
       new RecordProviderBenchmarkUseCase(repository, auditLog, options.clock),
+      new ReplaceProviderNodeRoutingStateUseCase(
+        repository,
+        approvedChatModelCatalog,
+        placementScoringPolicy,
+        auditLog,
+        options.clock
+      ),
       new UpsertProviderNodeRoutingProfileUseCase(
         repository,
         auditLog,

@@ -3,6 +3,12 @@ export interface GatewayChatCompletionMessage {
   content: string;
 }
 
+export interface GatewayExecutionUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
 export interface GatewayChatCompletionRequest {
   model: string;
   messages: readonly GatewayChatCompletionMessage[];
@@ -27,9 +33,25 @@ export interface GatewayChatCompletionResponse {
   created: number;
   model: string;
   choices: readonly GatewayChatCompletionChoice[];
+  usage: GatewayExecutionUsage;
+}
+
+export interface GatewayEmbeddingRequest {
+  model: string;
+  input: string | readonly string[];
+  encoding_format?: "float" | undefined;
+}
+
+export interface GatewayEmbeddingResponse {
+  object: "list";
+  data: readonly {
+    object: "embedding";
+    index: number;
+    embedding: readonly number[];
+  }[];
+  model: string;
   usage: {
     prompt_tokens: number;
-    completion_tokens: number;
     total_tokens: number;
   };
 }
@@ -37,6 +59,12 @@ export interface GatewayChatCompletionResponse {
 export interface DispatchChatCompletionRequest {
   endpointUrl: string;
   request: GatewayChatCompletionRequest;
+  headers?: Readonly<Record<string, string>>;
+}
+
+export interface DispatchEmbeddingRequest {
+  endpointUrl: string;
+  request: GatewayEmbeddingRequest;
   headers?: Readonly<Record<string, string>>;
 }
 
@@ -58,4 +86,8 @@ export interface GatewayUpstreamClient {
   dispatchChatCompletion(
     request: DispatchChatCompletionRequest
   ): Promise<GatewayChatCompletionResponse>;
+
+  dispatchEmbedding(
+    request: DispatchEmbeddingRequest
+  ): Promise<GatewayEmbeddingResponse>;
 }

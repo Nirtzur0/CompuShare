@@ -135,6 +135,14 @@ function buildInvitationApp(dependencies: {
     recordProviderBenchmarkUseCase: createStubRecordProviderBenchmarkUseCase(),
     listProviderInventoryUseCase: createStubListProviderInventoryUseCase(),
     getProviderNodeDetailUseCase: createStubGetProviderNodeDetailUseCase(),
+    issueProviderNodeAttestationChallengeUseCase: {
+      execute: () =>
+        Promise.reject(new Error("unused provider attestation challenge path"))
+    },
+    submitProviderNodeAttestationUseCase: {
+      execute: () =>
+        Promise.reject(new Error("unused provider attestation submit path"))
+    },
     upsertProviderNodeRoutingProfileUseCase:
       createStubUpsertProviderNodeRoutingProfileUseCase(),
     listProviderBenchmarkHistoryUseCase:

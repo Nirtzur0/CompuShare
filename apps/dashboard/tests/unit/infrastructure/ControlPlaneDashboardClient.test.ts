@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ControlPlaneDashboardClient } from "../../../src/infrastructure/controlPlane/ControlPlaneDashboardClient.js";
 import type { ConsumerDashboardOverviewSnapshot } from "../../../src/domain/consumer/ConsumerDashboardOverview.js";
 import type { ProviderDashboardOverviewSnapshot } from "../../../src/domain/provider/ProviderDashboardOverview.js";
+import type { ProviderPricingSimulatorSnapshot } from "../../../src/domain/provider/ProviderPricingSimulator.js";
 
 type FetchMockSignature = (
   input: RequestInfo | URL,
@@ -147,6 +148,56 @@ describe("ControlPlaneDashboardClient", () => {
     });
   });
 
+  it("loads a provider pricing simulator from the control-plane", async () => {
+    const snapshot: ProviderPricingSimulatorSnapshot = {
+      organizationId: "org-123",
+      actorRole: "finance",
+      simulatableNodeCount: 1,
+      unavailableNodeCount: 1,
+      assumptions: {
+        usageObservationDays: 7,
+        settlementEconomicsDays: 30,
+        projectionDays: 30,
+        netProjectionStatus: "available",
+        settlementCount: 2,
+        realizedPlatformFeePercent: 12,
+        realizedReserveHoldbackPercent: 4,
+        realizedWithdrawablePercent: 80,
+      },
+      nodes: [],
+    };
+    const fetchMock = vi.fn<FetchMockSignature>(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ simulator: snapshot }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ControlPlaneDashboardClient("http://127.0.0.1:3000");
+    const simulator = await client.getProviderPricingSimulator({
+      organizationId: "org-123",
+      actorUserId: "user-123",
+    });
+
+    expect(simulator.actorRole).toBe("finance");
+    expect(simulator.simulatableNodeCount).toBe(1);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [requestUrl, requestInit] = fetchMock.mock.calls[0] ?? [];
+
+    expect(requestUrl).toBeInstanceOf(URL);
+    expect((requestUrl as URL).href).toContain(
+      "/v1/organizations/org-123/dashboard/provider-pricing-simulator?actorUserId=user-123",
+    );
+    expect(requestInit).toMatchObject({
+      cache: "no-store",
+    });
+  });
+
   it("raises a typed error when the control-plane returns a failing status", async () => {
     const fetchMock = vi.fn<FetchMockSignature>(() =>
       Promise.resolve(
@@ -172,5 +223,14 @@ describe("ControlPlaneDashboardClient", () => {
         actorUserId: "user-123",
       }),
     ).rejects.toThrow("Consumer dashboard request failed with status 403.");
+
+    await expect(
+      client.getProviderPricingSimulator({
+        organizationId: "org-123",
+        actorUserId: "user-123",
+      }),
+    ).rejects.toThrow(
+      "Provider pricing simulator request failed with status 403.",
+    );
   });
 });

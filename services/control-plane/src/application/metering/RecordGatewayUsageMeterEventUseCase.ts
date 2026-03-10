@@ -10,9 +10,12 @@ export interface RecordGatewayUsageMeterEventRequest {
   providerOrganizationId: string;
   providerNodeId: string;
   environment: "development" | "staging" | "production";
+  requestKind?: "chat.completions" | "embeddings";
   approvedModelAlias: string;
   manifestId: string;
   decisionLogId: string;
+  batchId?: string | null;
+  batchItemId?: string | null;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -36,6 +39,7 @@ export class RecordGatewayUsageMeterEventUseCase {
     const recordedAt = request.occurredAt ?? this.clock().toISOString();
     const event = GatewayUsageMeterEvent.record({
       ...request,
+      requestKind: request.requestKind ?? "chat.completions",
       occurredAt: recordedAt
     });
 
@@ -54,10 +58,15 @@ export class RecordGatewayUsageMeterEventUseCase {
         decisionLogId: snapshot.decisionLogId,
         providerOrganizationId: snapshot.providerOrganizationId,
         providerNodeId: snapshot.providerNodeId,
+        requestKind: snapshot.requestKind,
         promptTokens: snapshot.promptTokens,
         completionTokens: snapshot.completionTokens,
         totalTokens: snapshot.totalTokens,
-        latencyMs: snapshot.latencyMs
+        latencyMs: snapshot.latencyMs,
+        ...(snapshot.batchId === null ? {} : { batchId: snapshot.batchId }),
+        ...(snapshot.batchItemId === null
+          ? {}
+          : { batchItemId: snapshot.batchItemId })
       }
     });
 

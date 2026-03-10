@@ -19,6 +19,13 @@ import {
   ProviderNodeDetailOrganizationNotFoundError
 } from "../../application/provider/GetProviderNodeDetailUseCase.js";
 import {
+  type IssueProviderNodeAttestationChallengeUseCase,
+  ProviderNodeAttestationCapabilityRequiredError,
+  ProviderNodeAttestationNodeNotFoundError,
+  ProviderNodeAttestationOrganizationNotFoundError,
+  ProviderNodeAttestationRuntimeUnsupportedError
+} from "../../application/provider/IssueProviderNodeAttestationChallengeUseCase.js";
+import {
   ProviderBenchmarkHistoryCapabilityRequiredError,
   ProviderBenchmarkHistoryNodeNotFoundError,
   ProviderBenchmarkHistoryOrganizationNotFoundError,
@@ -37,10 +44,24 @@ import {
   type UpsertProviderNodeRoutingProfileUseCase
 } from "../../application/provider/UpsertProviderNodeRoutingProfileUseCase.js";
 import {
+  ProviderRoutingStateApprovedModelAliasNotFoundError,
+  ProviderRoutingStateCapabilityRequiredError,
+  ProviderRoutingStateNodeNotFoundError,
+  ProviderRoutingStateOrganizationNotFoundError,
+  type ReplaceProviderNodeRoutingStateUseCase
+} from "../../application/provider/ReplaceProviderNodeRoutingStateUseCase.js";
+import {
   ProviderInventoryCapabilityRequiredError,
   ProviderInventoryOrganizationNotFoundError,
   type ListProviderInventoryUseCase
 } from "../../application/provider/ListProviderInventoryUseCase.js";
+import {
+  ProviderNodeAttestationChallengeAlreadyUsedError,
+  ProviderNodeAttestationChallengeExpiredError,
+  ProviderNodeAttestationChallengeNotFoundError,
+  ProviderNodeAttestationVerificationFailedError,
+  type SubmitProviderNodeAttestationUseCase
+} from "../../application/provider/SubmitProviderNodeAttestationUseCase.js";
 import { WorkloadBundleAdmissionRejectedError } from "../../application/workload/WorkloadBundleAdmissionRejectedError.js";
 import { DomainValidationError } from "../../domain/identity/DomainValidationError.js";
 
@@ -75,6 +96,30 @@ const providerBenchmarkRequestSchema = z.object({
 const providerRoutingProfileRequestSchema = z.object({
   endpointUrl: z.url().startsWith("https://"),
   priceFloorUsdPerHour: z.number().positive().max(1_000_000)
+});
+
+const providerRoutingStateRequestSchema = z.object({
+  warmModelAliases: z
+    .array(
+      z.object({
+        approvedModelAlias: z.string().min(3).max(120),
+        expiresAt: z.iso.datetime()
+      })
+    )
+    .max(32)
+});
+
+const providerNodeAttestationRequestSchema = z.object({
+  challengeId: z.uuid(),
+  attestationType: z.enum(["tpm_quote_v1"]),
+  attestationPublicKeyPem: z.string().min(32).max(8_192),
+  quoteBase64: z.string().min(32).max(16_384),
+  pcrValues: z
+    .record(z.string(), z.string().regex(/^[A-Fa-f0-9]{64}$/))
+    .refine((value) => Object.keys(value).length > 0, {
+      message: "At least one PCR value is required."
+    }),
+  secureBootEnabled: z.boolean()
 });
 
 const runtimeAdmissionRequestSchema = z.object({
@@ -115,6 +160,17 @@ export function registerProviderRoutes(
   >,
   listProviderInventoryUseCase: Pick<ListProviderInventoryUseCase, "execute">,
   getProviderNodeDetailUseCase: Pick<GetProviderNodeDetailUseCase, "execute">,
+  issueProviderNodeAttestationChallengeUseCase: Pick<
+    IssueProviderNodeAttestationChallengeUseCase,
+    "execute"
+  >,
+  submitProviderNodeAttestationUseCase: Pick<
+    SubmitProviderNodeAttestationUseCase,
+    "execute"
+  >,
+  replaceProviderNodeRoutingStateUseCase:
+    | Pick<ReplaceProviderNodeRoutingStateUseCase, "execute">
+    | undefined,
   upsertProviderNodeRoutingProfileUseCase: Pick<
     UpsertProviderNodeRoutingProfileUseCase,
     "execute"
@@ -397,6 +453,97 @@ export function registerProviderRoutes(
     }
   );
 
+  app.post(
+    "/v1/organizations/:organizationId/environments/:environment/provider-nodes/:providerNodeId/attestation-challenges",
+    async (request, reply) => {
+      const parsedParams = z
+        .object({
+          organizationId: z.uuid(),
+          environment: z.enum(["development", "staging", "production"]),
+          providerNodeId: z.uuid()
+        })
+        .safeParse(request.params);
+      const apiKeyHeader = request.headers["x-api-key"];
+
+      if (!parsedParams.success) {
+        return reply.status(400).send({
+          error: "VALIDATION_ERROR",
+          message: parsedParams.error.issues[0]?.message ?? "Invalid request."
+        });
+      }
+
+      if (
+        typeof apiKeyHeader !== "string" ||
+        apiKeyHeader.trim().length === 0
+      ) {
+        return reply.status(401).send({
+          error: "ORGANIZATION_API_KEY_MISSING",
+          message: "An x-api-key header is required."
+        });
+      }
+
+      try {
+        await authenticateOrganizationApiKeyUseCase.execute({
+          organizationId: parsedParams.data.organizationId,
+          environment: parsedParams.data.environment,
+          secret: apiKeyHeader
+        });
+
+        const response =
+          await issueProviderNodeAttestationChallengeUseCase.execute({
+            organizationId: parsedParams.data.organizationId,
+            providerNodeId: parsedParams.data.providerNodeId
+          });
+
+        return await reply.status(201).send(response);
+      } catch (error) {
+        if (error instanceof OrganizationApiKeyAuthenticationError) {
+          return reply.status(401).send({
+            error: "ORGANIZATION_API_KEY_AUTHENTICATION_ERROR",
+            message: error.message
+          });
+        }
+
+        if (error instanceof OrganizationApiKeyScopeMismatchError) {
+          return reply.status(403).send({
+            error: "ORGANIZATION_API_KEY_SCOPE_MISMATCH",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationOrganizationNotFoundError) {
+          return reply.status(404).send({
+            error: "PROVIDER_ORGANIZATION_NOT_FOUND",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationCapabilityRequiredError) {
+          return reply.status(403).send({
+            error: "PROVIDER_CAPABILITY_REQUIRED",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationNodeNotFoundError) {
+          return reply.status(404).send({
+            error: "PROVIDER_NODE_NOT_FOUND",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationRuntimeUnsupportedError) {
+          return reply.status(409).send({
+            error: "PROVIDER_NODE_RUNTIME_UNSUPPORTED",
+            message: error.message
+          });
+        }
+
+        throw error;
+      }
+    }
+  );
+
   app.put(
     "/v1/organizations/:organizationId/environments/:environment/provider-nodes/:providerNodeId/routing-profile",
     async (request, reply) => {
@@ -490,6 +637,261 @@ export function registerProviderRoutes(
         if (error instanceof ProviderRoutingProfileNodeNotFoundError) {
           return reply.status(404).send({
             error: "PROVIDER_NODE_NOT_FOUND",
+            message: error.message
+          });
+        }
+
+        throw error;
+      }
+    }
+  );
+
+  if (replaceProviderNodeRoutingStateUseCase !== undefined) {
+    app.put(
+      "/v1/organizations/:organizationId/environments/:environment/provider-nodes/:providerNodeId/routing-state",
+      async (request, reply) => {
+        const parsedParams = z
+          .object({
+            organizationId: z.uuid(),
+            environment: z.enum(["development", "staging", "production"]),
+            providerNodeId: z.uuid()
+          })
+          .safeParse(request.params);
+        const parsedBody = providerRoutingStateRequestSchema.safeParse(
+          request.body
+        );
+        const apiKeyHeader = request.headers["x-api-key"];
+
+        if (!parsedParams.success) {
+          return reply.status(400).send({
+            error: "VALIDATION_ERROR",
+            message: parsedParams.error.issues[0]?.message ?? "Invalid request."
+          });
+        }
+
+        if (!parsedBody.success) {
+          return reply.status(400).send({
+            error: "VALIDATION_ERROR",
+            message: parsedBody.error.issues[0]?.message ?? "Invalid request."
+          });
+        }
+
+        if (
+          typeof apiKeyHeader !== "string" ||
+          apiKeyHeader.trim().length === 0
+        ) {
+          return reply.status(401).send({
+            error: "ORGANIZATION_API_KEY_MISSING",
+            message: "An x-api-key header is required."
+          });
+        }
+
+        try {
+          await authenticateOrganizationApiKeyUseCase.execute({
+            organizationId: parsedParams.data.organizationId,
+            environment: parsedParams.data.environment,
+            secret: apiKeyHeader
+          });
+
+          const response = await replaceProviderNodeRoutingStateUseCase.execute(
+            {
+              organizationId: parsedParams.data.organizationId,
+              providerNodeId: parsedParams.data.providerNodeId,
+              warmModelAliases: parsedBody.data.warmModelAliases
+            }
+          );
+
+          return await reply.status(200).send(response);
+        } catch (error) {
+          if (error instanceof DomainValidationError) {
+            return reply.status(400).send({
+              error: "DOMAIN_VALIDATION_ERROR",
+              message: error.message
+            });
+          }
+
+          if (error instanceof OrganizationApiKeyAuthenticationError) {
+            return reply.status(401).send({
+              error: "ORGANIZATION_API_KEY_AUTHENTICATION_ERROR",
+              message: error.message
+            });
+          }
+
+          if (error instanceof OrganizationApiKeyScopeMismatchError) {
+            return reply.status(403).send({
+              error: "ORGANIZATION_API_KEY_SCOPE_MISMATCH",
+              message: error.message
+            });
+          }
+
+          if (error instanceof ProviderRoutingStateOrganizationNotFoundError) {
+            return reply.status(404).send({
+              error: "PROVIDER_ORGANIZATION_NOT_FOUND",
+              message: error.message
+            });
+          }
+
+          if (error instanceof ProviderRoutingStateCapabilityRequiredError) {
+            return reply.status(403).send({
+              error: "PROVIDER_CAPABILITY_REQUIRED",
+              message: error.message
+            });
+          }
+
+          if (error instanceof ProviderRoutingStateNodeNotFoundError) {
+            return reply.status(404).send({
+              error: "PROVIDER_NODE_NOT_FOUND",
+              message: error.message
+            });
+          }
+
+          if (
+            error instanceof ProviderRoutingStateApprovedModelAliasNotFoundError
+          ) {
+            return reply.status(404).send({
+              error: "APPROVED_MODEL_ALIAS_NOT_FOUND",
+              message: error.message
+            });
+          }
+
+          throw error;
+        }
+      }
+    );
+  }
+
+  app.post(
+    "/v1/organizations/:organizationId/environments/:environment/provider-nodes/:providerNodeId/attestations",
+    async (request, reply) => {
+      const parsedParams = z
+        .object({
+          organizationId: z.uuid(),
+          environment: z.enum(["development", "staging", "production"]),
+          providerNodeId: z.uuid()
+        })
+        .safeParse(request.params);
+      const parsedBody = providerNodeAttestationRequestSchema.safeParse(
+        request.body
+      );
+      const apiKeyHeader = request.headers["x-api-key"];
+
+      if (!parsedParams.success) {
+        return reply.status(400).send({
+          error: "VALIDATION_ERROR",
+          message: parsedParams.error.issues[0]?.message ?? "Invalid request."
+        });
+      }
+
+      if (!parsedBody.success) {
+        return reply.status(400).send({
+          error: "VALIDATION_ERROR",
+          message: parsedBody.error.issues[0]?.message ?? "Invalid request."
+        });
+      }
+
+      if (
+        typeof apiKeyHeader !== "string" ||
+        apiKeyHeader.trim().length === 0
+      ) {
+        return reply.status(401).send({
+          error: "ORGANIZATION_API_KEY_MISSING",
+          message: "An x-api-key header is required."
+        });
+      }
+
+      try {
+        await authenticateOrganizationApiKeyUseCase.execute({
+          organizationId: parsedParams.data.organizationId,
+          environment: parsedParams.data.environment,
+          secret: apiKeyHeader
+        });
+
+        const response = await submitProviderNodeAttestationUseCase.execute({
+          organizationId: parsedParams.data.organizationId,
+          providerNodeId: parsedParams.data.providerNodeId,
+          challengeId: parsedBody.data.challengeId,
+          attestationType: parsedBody.data.attestationType,
+          attestationPublicKeyPem: parsedBody.data.attestationPublicKeyPem,
+          quoteBase64: parsedBody.data.quoteBase64,
+          pcrValues: parsedBody.data.pcrValues,
+          secureBootEnabled: parsedBody.data.secureBootEnabled
+        });
+
+        return await reply.status(201).send(response);
+      } catch (error) {
+        if (error instanceof DomainValidationError) {
+          return reply.status(400).send({
+            error: "DOMAIN_VALIDATION_ERROR",
+            message: error.message
+          });
+        }
+
+        if (error instanceof OrganizationApiKeyAuthenticationError) {
+          return reply.status(401).send({
+            error: "ORGANIZATION_API_KEY_AUTHENTICATION_ERROR",
+            message: error.message
+          });
+        }
+
+        if (error instanceof OrganizationApiKeyScopeMismatchError) {
+          return reply.status(403).send({
+            error: "ORGANIZATION_API_KEY_SCOPE_MISMATCH",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationOrganizationNotFoundError) {
+          return reply.status(404).send({
+            error: "PROVIDER_ORGANIZATION_NOT_FOUND",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationCapabilityRequiredError) {
+          return reply.status(403).send({
+            error: "PROVIDER_CAPABILITY_REQUIRED",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationNodeNotFoundError) {
+          return reply.status(404).send({
+            error: "PROVIDER_NODE_NOT_FOUND",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationRuntimeUnsupportedError) {
+          return reply.status(409).send({
+            error: "PROVIDER_NODE_RUNTIME_UNSUPPORTED",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationChallengeNotFoundError) {
+          return reply.status(404).send({
+            error: "PROVIDER_NODE_ATTESTATION_CHALLENGE_NOT_FOUND",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationChallengeExpiredError) {
+          return reply.status(409).send({
+            error: "PROVIDER_NODE_ATTESTATION_CHALLENGE_EXPIRED",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationChallengeAlreadyUsedError) {
+          return reply.status(409).send({
+            error: "PROVIDER_NODE_ATTESTATION_CHALLENGE_ALREADY_USED",
+            message: error.message
+          });
+        }
+
+        if (error instanceof ProviderNodeAttestationVerificationFailedError) {
+          return reply.status(422).send({
+            error: "PROVIDER_NODE_ATTESTATION_VERIFICATION_FAILED",
             message: error.message
           });
         }

@@ -52,7 +52,8 @@ describe("seedRunnableAlphaDemo CLI", () => {
     expect(result.seedTag).toBe("cli-demo");
     expect(result.buyer.dashboardUrl).toContain("/consumer?");
     expect(result.provider.dashboardUrl).toContain("/provider?");
-    expect(result.provider.node.label).toBe("Runnable Alpha Node");
+    expect(result.provider.pricingDashboardUrl).toContain("/provider/pricing?");
+    expect(result.provider.node.label).toBe("Runnable Alpha Warm Node");
     expect(result.provider.apiKey.secret).toBe(
       "csk_provider_runtime_local_seed_secret_000000"
     );
@@ -68,10 +69,24 @@ describe("seedRunnableAlphaDemo CLI", () => {
     expect(result.gatewayDemo.curlCommand).toContain(
       "http://127.0.0.1:3100/v1/chat/completions"
     );
+    expect(result.embeddingDemo.curlCommand).toContain(
+      "http://127.0.0.1:3100/v1/embeddings"
+    );
+    expect(result.batchDemo.uploadCurlCommand).toContain(
+      "http://127.0.0.1:3100/v1/files"
+    );
+    expect(result.batchDemo.createCurlCommand).toContain(
+      "http://127.0.0.1:3100/v1/batches"
+    );
+    expect(result.batchDemo.workerCommand).toBe("pnpm dev:batch-worker");
     expect(summary).toContain("Seeded runnable alpha demo data.");
     expect(summary).toContain(result.buyer.dashboardUrl);
+    expect(summary).toContain(result.provider.pricingDashboardUrl);
     expect(summary).toContain(result.provider.apiKey.secret);
     expect(summary).toContain(result.gatewayDemo.curlCommand);
+    expect(summary).toContain(result.embeddingDemo.curlCommand);
+    expect(summary).toContain(result.batchDemo.uploadCurlCommand);
+    expect(summary).toContain(result.batchDemo.workerCommand);
   });
 
   it("writes JSON to stdout and a readable summary to stderr through main()", async () => {

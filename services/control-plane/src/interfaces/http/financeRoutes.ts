@@ -2,6 +2,10 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { GetOrganizationWalletSummaryUseCase } from "../../application/ledger/GetOrganizationWalletSummaryUseCase.js";
 import type { GetStagedPayoutExportUseCase } from "../../application/ledger/GetStagedPayoutExportUseCase.js";
+import type { GetProviderPayoutAccountStatusUseCase } from "../../application/payout/GetProviderPayoutAccountStatusUseCase.js";
+import type { GetProviderPayoutAvailabilityUseCase } from "../../application/payout/GetProviderPayoutAvailabilityUseCase.js";
+import type { IssueProviderPayoutOnboardingLinkUseCase } from "../../application/payout/IssueProviderPayoutOnboardingLinkUseCase.js";
+import { ProviderPayoutAccountNotFoundError } from "../../application/payout/PayoutErrors.js";
 import {
   BuyerCapabilityRequiredError,
   LedgerInsufficientPrepaidBalanceError,
@@ -36,6 +40,10 @@ const walletSummaryQuerySchema = z.object({
   actorUserId: z.uuid()
 });
 
+const providerPayoutOnboardingLinkRequestSchema = z.object({
+  actorUserId: z.uuid()
+});
+
 export function registerFinanceRoutes(
   app: FastifyInstance,
   recordCustomerChargeUseCase: Pick<RecordCustomerChargeUseCase, "execute">,
@@ -46,6 +54,18 @@ export function registerFinanceRoutes(
   getStagedPayoutExportUseCase: Pick<GetStagedPayoutExportUseCase, "execute">,
   getOrganizationWalletSummaryUseCase: Pick<
     GetOrganizationWalletSummaryUseCase,
+    "execute"
+  >,
+  issueProviderPayoutOnboardingLinkUseCase?: Pick<
+    IssueProviderPayoutOnboardingLinkUseCase,
+    "execute"
+  >,
+  getProviderPayoutAccountStatusUseCase?: Pick<
+    GetProviderPayoutAccountStatusUseCase,
+    "execute"
+  >,
+  getProviderPayoutAvailabilityUseCase?: Pick<
+    GetProviderPayoutAvailabilityUseCase,
     "execute"
   >
 ): void {
@@ -299,4 +319,156 @@ export function registerFinanceRoutes(
       }
     }
   );
+
+  if (
+    issueProviderPayoutOnboardingLinkUseCase !== undefined &&
+    getProviderPayoutAccountStatusUseCase !== undefined &&
+    getProviderPayoutAvailabilityUseCase !== undefined
+  ) {
+    app.post(
+      "/v1/organizations/:organizationId/finance/provider-payout-accounts/onboarding-links",
+      async (request, reply) => {
+        const parsedParams = financeRouteParamsSchema.safeParse(request.params);
+        const parsedBody = providerPayoutOnboardingLinkRequestSchema.safeParse(
+          request.body
+        );
+
+        if (!parsedParams.success) {
+          return reply.status(400).send({
+            error: "VALIDATION_ERROR",
+            message: parsedParams.error.issues[0]?.message ?? "Invalid request."
+          });
+        }
+
+        if (!parsedBody.success) {
+          return reply.status(400).send({
+            error: "VALIDATION_ERROR",
+            message: parsedBody.error.issues[0]?.message ?? "Invalid request."
+          });
+        }
+
+        try {
+          const response =
+            await issueProviderPayoutOnboardingLinkUseCase.execute({
+              organizationId: parsedParams.data.organizationId,
+              actorUserId: parsedBody.data.actorUserId
+            });
+
+          return await reply.status(201).send(response);
+        } catch (error) {
+          return handleFinanceError(reply, error);
+        }
+      }
+    );
+
+    app.get(
+      "/v1/organizations/:organizationId/finance/provider-payout-accounts/current",
+      async (request, reply) => {
+        const parsedParams = financeRouteParamsSchema.safeParse(request.params);
+        const parsedQuery = walletSummaryQuerySchema.safeParse(request.query);
+
+        if (!parsedParams.success) {
+          return reply.status(400).send({
+            error: "VALIDATION_ERROR",
+            message: parsedParams.error.issues[0]?.message ?? "Invalid request."
+          });
+        }
+
+        if (!parsedQuery.success) {
+          return reply.status(400).send({
+            error: "VALIDATION_ERROR",
+            message: parsedQuery.error.issues[0]?.message ?? "Invalid request."
+          });
+        }
+
+        try {
+          const response = await getProviderPayoutAccountStatusUseCase.execute({
+            organizationId: parsedParams.data.organizationId,
+            actorUserId: parsedQuery.data.actorUserId
+          });
+
+          return await reply.status(200).send(response);
+        } catch (error) {
+          return handleFinanceError(reply, error);
+        }
+      }
+    );
+
+    app.get(
+      "/v1/organizations/:organizationId/finance/provider-payout-availability",
+      async (request, reply) => {
+        const parsedParams = financeRouteParamsSchema.safeParse(request.params);
+        const parsedQuery = walletSummaryQuerySchema.safeParse(request.query);
+
+        if (!parsedParams.success) {
+          return reply.status(400).send({
+            error: "VALIDATION_ERROR",
+            message: parsedParams.error.issues[0]?.message ?? "Invalid request."
+          });
+        }
+
+        if (!parsedQuery.success) {
+          return reply.status(400).send({
+            error: "VALIDATION_ERROR",
+            message: parsedQuery.error.issues[0]?.message ?? "Invalid request."
+          });
+        }
+
+        try {
+          const response = await getProviderPayoutAvailabilityUseCase.execute({
+            organizationId: parsedParams.data.organizationId,
+            actorUserId: parsedQuery.data.actorUserId
+          });
+
+          return await reply.status(200).send(response);
+        } catch (error) {
+          return handleFinanceError(reply, error);
+        }
+      }
+    );
+  }
+}
+
+function handleFinanceError(
+  reply: {
+    status(code: number): { send(payload: Record<string, unknown>): unknown };
+  },
+  error: unknown
+): unknown {
+  if (error instanceof DomainValidationError) {
+    return reply.status(400).send({
+      error: "DOMAIN_VALIDATION_ERROR",
+      message: error.message
+    });
+  }
+
+  if (error instanceof LedgerOrganizationNotFoundError) {
+    return reply.status(404).send({
+      error: "LEDGER_ORGANIZATION_NOT_FOUND",
+      message: error.message
+    });
+  }
+
+  if (error instanceof OrganizationFinanceAuthorizationError) {
+    return reply.status(403).send({
+      error: "ORGANIZATION_FINANCE_AUTHORIZATION_ERROR",
+      message: error.message
+    });
+  }
+
+  if (error instanceof ProviderCapabilityRequiredError) {
+    return reply.status(409).send({
+      error: "PROVIDER_CAPABILITY_REQUIRED",
+      message: error.message
+    });
+  }
+
+  if (error instanceof ProviderPayoutAccountNotFoundError) {
+    return reply.status(404).send({
+      error: "PROVIDER_PAYOUT_ACCOUNT_NOT_FOUND",
+      message: error.message
+    });
+  }
+
+  throw error;
 }

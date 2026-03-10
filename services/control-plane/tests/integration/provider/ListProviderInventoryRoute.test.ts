@@ -14,8 +14,11 @@ import { EnrollProviderNodeUseCase } from "../../../src/application/provider/Enr
 import { GetProviderNodeDetailUseCase } from "../../../src/application/provider/GetProviderNodeDetailUseCase.js";
 import { ListProviderBenchmarkHistoryUseCase } from "../../../src/application/provider/ListProviderBenchmarkHistoryUseCase.js";
 import { ListProviderInventoryUseCase } from "../../../src/application/provider/ListProviderInventoryUseCase.js";
+import { ReplaceProviderNodeRoutingStateUseCase } from "../../../src/application/provider/ReplaceProviderNodeRoutingStateUseCase.js";
 import { RecordProviderBenchmarkUseCase } from "../../../src/application/provider/RecordProviderBenchmarkUseCase.js";
 import { UpsertProviderNodeRoutingProfileUseCase } from "../../../src/application/provider/UpsertProviderNodeRoutingProfileUseCase.js";
+import { PlacementScoringPolicy } from "../../../src/config/PlacementScoringPolicy.js";
+import { InMemoryApprovedChatModelCatalog } from "../../../src/infrastructure/gateway/InMemoryApprovedChatModelCatalog.js";
 import { StructuredConsoleAuditLog } from "../../../src/infrastructure/observability/StructuredConsoleAuditLog.js";
 import { IdentitySchemaInitializer } from "../../../src/infrastructure/persistence/postgres/IdentitySchemaInitializer.js";
 import { PostgresIdentityRepository } from "../../../src/infrastructure/persistence/postgres/PostgresIdentityRepository.js";
@@ -61,8 +64,13 @@ describe("provider inventory route", () => {
   });
 
   it("lists provider inventory summaries with latest benchmark data", async () => {
-    const repository = new PostgresIdentityRepository(pool);
+    const repository = new PostgresIdentityRepository(
+      pool,
+      () => new Date("2026-03-09T19:06:00.000Z")
+    );
     const auditLog = new StructuredConsoleAuditLog();
+    const approvedChatModelCatalog =
+      InMemoryApprovedChatModelCatalog.createDefault();
     const app = buildApp({
       createOrganizationUseCase: new CreateOrganizationUseCase(
         repository,
@@ -125,6 +133,24 @@ describe("provider inventory route", () => {
       getProviderNodeDetailUseCase: new GetProviderNodeDetailUseCase(
         repository
       ),
+      issueProviderNodeAttestationChallengeUseCase: {
+        execute: () =>
+          Promise.reject(
+            new Error("unused provider attestation challenge path")
+          )
+      },
+      submitProviderNodeAttestationUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider attestation submit path"))
+      },
+      replaceProviderNodeRoutingStateUseCase:
+        new ReplaceProviderNodeRoutingStateUseCase(
+          repository,
+          approvedChatModelCatalog,
+          PlacementScoringPolicy.createDefault(),
+          auditLog,
+          () => new Date("2026-03-09T19:05:00.000Z")
+        ),
       upsertProviderNodeRoutingProfileUseCase:
         new UpsertProviderNodeRoutingProfileUseCase(repository, auditLog),
       listProviderBenchmarkHistoryUseCase:
@@ -246,6 +272,20 @@ describe("provider inventory route", () => {
     });
 
     await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationPayload.organization.id}/environments/production/provider-nodes/${firstNodePayload.node.id}/routing-state`,
+      headers: { "x-api-key": apiKeyPayload.secret },
+      payload: {
+        warmModelAliases: [
+          {
+            approvedModelAlias: "openai/gpt-oss-120b-like",
+            expiresAt: "2026-03-09T19:15:00.000Z"
+          }
+        ]
+      }
+    });
+
+    await app.inject({
       method: "POST",
       url: `/v1/organizations/${organizationPayload.organization.id}/environments/production/provider-nodes`,
       headers: { "x-api-key": apiKeyPayload.secret },
@@ -284,7 +324,14 @@ describe("provider inventory route", () => {
             label: "Primary List Node",
             runtime: "linux",
             trustTier: "t1_vetted",
-            healthState: "healthy"
+            healthState: "healthy",
+            routingState: {
+              warmModelAliases: [
+                {
+                  approvedModelAlias: "openai/gpt-oss-120b-like"
+                }
+              ]
+            }
           },
           latestBenchmark: {
             gpuClass: "NVIDIA A100",
@@ -297,7 +344,10 @@ describe("provider inventory route", () => {
             label: "Secondary List Node",
             runtime: "kubernetes",
             trustTier: "t1_vetted",
-            healthState: "healthy"
+            healthState: "healthy",
+            routingState: {
+              warmModelAliases: []
+            }
           },
           latestBenchmark: null
         }

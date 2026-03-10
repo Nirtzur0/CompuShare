@@ -170,8 +170,8 @@ describe("ListPlacementCandidatesUseCase", () => {
     expect(
       response.candidates.map((candidate) => candidate.providerNodeId)
     ).toEqual([
-      "01c6255a-8bd1-4380-8579-f90c837e0a20",
-      "f1c6255a-8bd1-4380-8579-f90c837e0a20"
+      "f1c6255a-8bd1-4380-8579-f90c837e0a20",
+      "01c6255a-8bd1-4380-8579-f90c837e0a20"
     ]);
   });
 

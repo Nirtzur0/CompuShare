@@ -36,6 +36,10 @@ describe("PlacementCandidate", () => {
     expect(() =>
       PlacementCandidate.fromInventorySummary({
         summary,
+        score: 74.25,
+        pricePerformanceScore: 74.25,
+        warmCacheMultiplier: 1,
+        warmCacheExpiresAt: null,
         matchedGpu: {
           model: "NVIDIA A100",
           vramGb: 80,

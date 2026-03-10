@@ -4,6 +4,7 @@ import { OrganizationId } from "../../domain/identity/OrganizationId.js";
 import { PlacementDecisionLog } from "../../domain/placement/PlacementDecisionLog.js";
 import { PlacementRequirements } from "../../domain/placement/PlacementRequirements.js";
 import type { PlacementCandidateSelectionSnapshot } from "../../domain/placement/PlacementCandidate.js";
+import { PlacementScoringPolicy } from "../../config/PlacementScoringPolicy.js";
 import { PlacementCandidatePlanner } from "./PlacementCandidatePlanner.js";
 import type { SyncPlacementRepository } from "./ports/SyncPlacementRepository.js";
 
@@ -15,6 +16,7 @@ export interface ResolveSyncPlacementRequest {
   region: string;
   minimumTrustTier: string;
   maxPriceUsdPerHour: number;
+  approvedModelAlias?: string;
 }
 
 export interface ResolveSyncPlacementResponse {
@@ -53,7 +55,10 @@ export class ResolveSyncPlacementUseCase {
     private readonly repository: SyncPlacementRepository,
     private readonly auditLog: AuditLog,
     private readonly clock: () => Date = () => new Date(),
-    private readonly planner: PlacementCandidatePlanner = new PlacementCandidatePlanner()
+    private readonly planner: PlacementCandidatePlanner = new PlacementCandidatePlanner(
+      PlacementScoringPolicy.createDefault(),
+      clock
+    )
   ) {}
 
   public async execute(
@@ -81,7 +86,8 @@ export class ResolveSyncPlacementUseCase {
     const occurredAt = this.clock();
     const candidates = this.planner.buildCandidates(
       requirements,
-      await this.repository.listPlacementProviderInventorySummaries()
+      await this.repository.listPlacementProviderInventorySummaries(),
+      request.approvedModelAlias
     );
     const selectedCandidate =
       this.planner.selectDeterministicSyncCandidate(candidates);
@@ -91,6 +97,7 @@ export class ResolveSyncPlacementUseCase {
         organizationId: organizationId.value,
         environment: request.environment,
         filters: requirements.toSnapshot(),
+        approvedModelAlias: request.approvedModelAlias ?? null,
         candidateCount: candidates.length,
         rejectionReason: "no_eligible_provider",
         createdAt: occurredAt
@@ -114,9 +121,13 @@ export class ResolveSyncPlacementUseCase {
       organizationId: organizationId.value,
       environment: request.environment,
       filters: requirements.toSnapshot(),
+      approvedModelAlias: request.approvedModelAlias ?? null,
       candidateCount: candidates.length,
       selectedProviderNodeId: selectedCandidate.providerNodeId,
       selectedProviderOrganizationId: selectedCandidate.providerOrganizationId,
+      selectionScore: selectedCandidate.score,
+      pricePerformanceScore: selectedCandidate.pricePerformanceScore,
+      warmCacheMatched: selectedCandidate.warmCacheMultiplier > 1,
       createdAt: occurredAt
     });
 
@@ -128,7 +139,10 @@ export class ResolveSyncPlacementUseCase {
       occurredAt,
       {
         candidateCount: candidates.length,
-        selectedProviderNodeId: selectedCandidate.providerNodeId
+        selectedProviderNodeId: selectedCandidate.providerNodeId,
+        selectionScore: selectedCandidate.score,
+        pricePerformanceScore: selectedCandidate.pricePerformanceScore,
+        warmCacheMatched: selectedCandidate.warmCacheMultiplier > 1
       }
     );
 
@@ -153,6 +167,9 @@ export class ResolveSyncPlacementUseCase {
     outcome: {
       candidateCount: number;
       selectedProviderNodeId?: string;
+      selectionScore?: number;
+      pricePerformanceScore?: number;
+      warmCacheMatched?: boolean;
       rejectionReason?: string;
     }
   ): Promise<void> {
@@ -164,6 +181,7 @@ export class ResolveSyncPlacementUseCase {
       metadata: {
         decisionLogId,
         environment: request.environment,
+        approvedModelAlias: request.approvedModelAlias ?? null,
         gpuClass: request.gpuClass.trim().toLowerCase(),
         minVramGb: request.minVramGb,
         region: request.region,
@@ -171,6 +189,9 @@ export class ResolveSyncPlacementUseCase {
         maxPriceUsdPerHour: request.maxPriceUsdPerHour,
         candidateCount: outcome.candidateCount,
         selectedProviderNodeId: outcome.selectedProviderNodeId ?? null,
+        selectionScore: outcome.selectionScore ?? null,
+        pricePerformanceScore: outcome.pricePerformanceScore ?? null,
+        warmCacheMatched: outcome.warmCacheMatched ?? null,
         rejectionReason: outcome.rejectionReason ?? null
       }
     });

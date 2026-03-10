@@ -5,6 +5,10 @@ import {
   ExecuteChatCompletionUseCase,
   GatewayAuthorizationHeaderError
 } from "../../../src/application/gateway/ExecuteChatCompletionUseCase.js";
+import type {
+  DispatchEmbeddingRequest,
+  GatewayEmbeddingResponse
+} from "../../../src/application/gateway/ports/GatewayUpstreamClient.js";
 import { PrepareSignedChatWorkloadBundleUseCase } from "../../../src/application/workload/PrepareSignedChatWorkloadBundleUseCase.js";
 import { VerifySignedWorkloadBundleAdmissionUseCase } from "../../../src/application/workload/VerifySignedWorkloadBundleAdmissionUseCase.js";
 import { InMemoryApprovedChatModelCatalog } from "../../../src/infrastructure/gateway/InMemoryApprovedChatModelCatalog.js";
@@ -29,6 +33,12 @@ function createVerifier(
       record
     }
   );
+}
+
+function createUnusedEmbeddingDispatch(): (
+  request: DispatchEmbeddingRequest
+) => Promise<GatewayEmbeddingResponse> {
+  return () => Promise.reject(new Error("unused embedding path"));
 }
 
 describe("ExecuteChatCompletionUseCase", () => {
@@ -128,7 +138,8 @@ describe("ExecuteChatCompletionUseCase", () => {
               total_tokens: 30
             }
           });
-        }
+        },
+        dispatchEmbedding: createUnusedEmbeddingDispatch()
       },
       {
         execute: (request: {
@@ -219,7 +230,8 @@ describe("ExecuteChatCompletionUseCase", () => {
         createVerifier(async () => Promise.resolve())
       ),
       {
-        dispatchChatCompletion: async () => Promise.reject(new Error("unused"))
+        dispatchChatCompletion: async () => Promise.reject(new Error("unused")),
+        dispatchEmbedding: createUnusedEmbeddingDispatch()
       },
       { execute: async () => Promise.reject(new Error("unused")) } as never,
       { record: async () => Promise.reject(new Error("unused")) }
@@ -266,7 +278,8 @@ describe("ExecuteChatCompletionUseCase", () => {
         createVerifier(async () => Promise.resolve())
       ),
       {
-        dispatchChatCompletion: async () => Promise.reject(new Error("unused"))
+        dispatchChatCompletion: async () => Promise.reject(new Error("unused")),
+        dispatchEmbedding: createUnusedEmbeddingDispatch()
       },
       { execute: async () => Promise.reject(new Error("unused")) } as never,
       { record: async () => Promise.reject(new Error("unused")) }
