@@ -39,7 +39,7 @@ describe("ProviderPricingSimulator", () => {
           },
           latestBenchmark: {
             providerNodeId: "node-1",
-            benchmarkId: "benchmark-1",
+            id: "benchmark-1",
             gpuClass: "NVIDIA A100",
             vramGb: 80,
             throughputTokensPerSecond: 1,

@@ -5,6 +5,7 @@ import { SeedRunnableAlphaDemo } from "../../../src/application/demo/SeedRunnabl
 import { GetConsumerDashboardOverviewUseCase } from "../../../src/application/dashboard/GetConsumerDashboardOverviewUseCase.js";
 import { GetProviderDashboardOverviewUseCase } from "../../../src/application/dashboard/GetProviderDashboardOverviewUseCase.js";
 import { GetProviderPricingSimulatorUseCase } from "../../../src/application/dashboard/GetProviderPricingSimulatorUseCase.js";
+import { CreatePrivateConnectorUseCase } from "../../../src/application/privateConnector/CreatePrivateConnectorUseCase.js";
 import { AuthenticateOrganizationApiKeyUseCase } from "../../../src/application/identity/AuthenticateOrganizationApiKeyUseCase.js";
 import { RecordCompletedJobSettlementUseCase } from "../../../src/application/ledger/RecordCompletedJobSettlementUseCase.js";
 import { RecordCustomerChargeUseCase } from "../../../src/application/ledger/RecordCustomerChargeUseCase.js";
@@ -23,6 +24,7 @@ import { InMemoryApprovedChatModelCatalog } from "../../../src/infrastructure/ga
 import { StructuredConsoleAuditLog } from "../../../src/infrastructure/observability/StructuredConsoleAuditLog.js";
 import { IdentitySchemaInitializer } from "../../../src/infrastructure/persistence/postgres/IdentitySchemaInitializer.js";
 import { PostgresIdentityRepository } from "../../../src/infrastructure/persistence/postgres/PostgresIdentityRepository.js";
+import { PostgresPrivateConnectorRepository } from "../../../src/infrastructure/persistence/postgres/PostgresPrivateConnectorRepository.js";
 import { buildApp } from "../../../src/interfaces/http/buildApp.js";
 
 interface PgMemModule {
@@ -48,6 +50,9 @@ describe("SeedRunnableAlphaDemo", () => {
   it("seeds demo data that can be queried through the dashboard routes", async () => {
     const clock = () => new Date("2026-03-09T12:00:00.000Z");
     const repository = new PostgresIdentityRepository(pool, clock);
+    const privateConnectorRepository = new PostgresPrivateConnectorRepository(
+      pool
+    );
     const auditLog = new StructuredConsoleAuditLog();
     const approvedChatModelCatalog =
       InMemoryApprovedChatModelCatalog.createDefault();
@@ -75,6 +80,11 @@ describe("SeedRunnableAlphaDemo", () => {
       new UpsertProviderNodeRoutingProfileUseCase(repository, auditLog, clock),
       new RecordCustomerChargeUseCase(repository, auditLog, clock),
       new RecordCompletedJobSettlementUseCase(repository, auditLog, clock),
+      new CreatePrivateConnectorUseCase(
+        privateConnectorRepository,
+        auditLog,
+        clock
+      ),
       new ResolveSyncPlacementUseCase(repository, auditLog, clock),
       new RecordGatewayUsageMeterEventUseCase(repository, auditLog, clock),
       new GetConsumerDashboardOverviewUseCase(repository, auditLog),
@@ -318,6 +328,9 @@ describe("SeedRunnableAlphaDemo", () => {
       pool,
       () => new Date("2026-03-09T12:00:00.000Z")
     );
+    const privateConnectorRepository = new PostgresPrivateConnectorRepository(
+      pool
+    );
     const auditLog = new StructuredConsoleAuditLog();
     const approvedChatModelCatalog =
       InMemoryApprovedChatModelCatalog.createDefault();
@@ -340,6 +353,7 @@ describe("SeedRunnableAlphaDemo", () => {
       new UpsertProviderNodeRoutingProfileUseCase(repository, auditLog),
       new RecordCustomerChargeUseCase(repository, auditLog),
       new RecordCompletedJobSettlementUseCase(repository, auditLog),
+      new CreatePrivateConnectorUseCase(privateConnectorRepository, auditLog),
       new ResolveSyncPlacementUseCase(repository, auditLog),
       new RecordGatewayUsageMeterEventUseCase(repository, auditLog),
       new GetConsumerDashboardOverviewUseCase(repository, auditLog),
@@ -359,6 +373,9 @@ describe("SeedRunnableAlphaDemo", () => {
   it("derives a stable default seed tag from the clock when one is not provided", async () => {
     const clock = () => new Date("2026-03-09T14:00:00.000Z");
     const repository = new PostgresIdentityRepository(pool, clock);
+    const privateConnectorRepository = new PostgresPrivateConnectorRepository(
+      pool
+    );
     const auditLog = new StructuredConsoleAuditLog();
     const approvedChatModelCatalog =
       InMemoryApprovedChatModelCatalog.createDefault();
@@ -386,6 +403,11 @@ describe("SeedRunnableAlphaDemo", () => {
       new UpsertProviderNodeRoutingProfileUseCase(repository, auditLog, clock),
       new RecordCustomerChargeUseCase(repository, auditLog, clock),
       new RecordCompletedJobSettlementUseCase(repository, auditLog, clock),
+      new CreatePrivateConnectorUseCase(
+        privateConnectorRepository,
+        auditLog,
+        clock
+      ),
       new ResolveSyncPlacementUseCase(repository, auditLog, clock),
       new RecordGatewayUsageMeterEventUseCase(repository, auditLog, clock),
       new GetConsumerDashboardOverviewUseCase(repository, auditLog),

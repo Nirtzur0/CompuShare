@@ -218,17 +218,47 @@ export class IdentitySchemaInitializer {
         created_at TIMESTAMPTZ NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS private_connectors (
+        id UUID PRIMARY KEY,
+        organization_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+        environment TEXT NOT NULL,
+        label TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        endpoint_url TEXT NOT NULL,
+        runtime_version TEXT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        last_check_in_at TIMESTAMPTZ NULL,
+        last_ready_at TIMESTAMPTZ NULL,
+        disabled_at TIMESTAMPTZ NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS private_connectors_org_env_created_idx
+      ON private_connectors (organization_id, environment, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS private_connector_model_mappings (
+        private_connector_id UUID NOT NULL REFERENCES private_connectors (id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        request_model_alias TEXT NOT NULL,
+        upstream_model_id TEXT NOT NULL,
+        PRIMARY KEY (private_connector_id, ordinal)
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS private_connector_model_alias_idx
+      ON private_connector_model_mappings (private_connector_id, request_model_alias);
+
       CREATE TABLE IF NOT EXISTS gateway_usage_meter_events (
         workload_bundle_id UUID PRIMARY KEY,
         occurred_at TIMESTAMPTZ NOT NULL,
         customer_organization_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
-        provider_organization_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
-        provider_node_id UUID NOT NULL REFERENCES provider_nodes (id) ON DELETE CASCADE,
+        execution_target_type TEXT NOT NULL DEFAULT 'marketplace_provider',
+        provider_organization_id UUID NULL REFERENCES organizations (id) ON DELETE CASCADE,
+        provider_node_id UUID NULL REFERENCES provider_nodes (id) ON DELETE CASCADE,
+        private_connector_id UUID NULL REFERENCES private_connectors (id) ON DELETE CASCADE,
         environment TEXT NOT NULL,
         request_kind TEXT NOT NULL DEFAULT 'chat.completions',
         approved_model_alias TEXT NOT NULL,
-        manifest_id TEXT NOT NULL,
-        decision_log_id UUID NOT NULL REFERENCES placement_decision_logs (id) ON DELETE CASCADE,
+        manifest_id TEXT NULL,
+        decision_log_id UUID NULL REFERENCES placement_decision_logs (id) ON DELETE CASCADE,
         batch_id UUID NULL,
         batch_item_id TEXT NULL,
         prompt_tokens INTEGER NOT NULL,
@@ -245,6 +275,24 @@ export class IdentitySchemaInitializer {
 
       CREATE INDEX IF NOT EXISTS gateway_usage_meter_events_model_occurred_idx
       ON gateway_usage_meter_events (approved_model_alias, occurred_at);
+
+      ALTER TABLE gateway_usage_meter_events
+      ADD COLUMN IF NOT EXISTS execution_target_type TEXT NOT NULL DEFAULT 'marketplace_provider';
+
+      ALTER TABLE gateway_usage_meter_events
+      ADD COLUMN IF NOT EXISTS private_connector_id UUID NULL REFERENCES private_connectors (id) ON DELETE CASCADE;
+
+      ALTER TABLE gateway_usage_meter_events
+      ALTER COLUMN provider_organization_id DROP NOT NULL;
+
+      ALTER TABLE gateway_usage_meter_events
+      ALTER COLUMN provider_node_id DROP NOT NULL;
+
+      ALTER TABLE gateway_usage_meter_events
+      ALTER COLUMN manifest_id DROP NOT NULL;
+
+      ALTER TABLE gateway_usage_meter_events
+      ALTER COLUMN decision_log_id DROP NOT NULL;
 
       CREATE TABLE IF NOT EXISTS gateway_files (
         id UUID PRIMARY KEY,

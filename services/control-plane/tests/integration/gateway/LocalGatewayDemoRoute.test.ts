@@ -13,6 +13,7 @@ import { RecordCompletedJobSettlementUseCase } from "../../../src/application/le
 import { RecordCustomerChargeUseCase } from "../../../src/application/ledger/RecordCustomerChargeUseCase.js";
 import { RecordGatewayUsageMeterEventUseCase } from "../../../src/application/metering/RecordGatewayUsageMeterEventUseCase.js";
 import { ResolveSyncPlacementUseCase } from "../../../src/application/placement/ResolveSyncPlacementUseCase.js";
+import { CreatePrivateConnectorUseCase } from "../../../src/application/privateConnector/CreatePrivateConnectorUseCase.js";
 import { EnrollProviderNodeUseCase } from "../../../src/application/provider/EnrollProviderNodeUseCase.js";
 import { ReplaceProviderNodeRoutingStateUseCase } from "../../../src/application/provider/ReplaceProviderNodeRoutingStateUseCase.js";
 import { RecordProviderBenchmarkUseCase } from "../../../src/application/provider/RecordProviderBenchmarkUseCase.js";
@@ -25,6 +26,7 @@ import { FetchGatewayUpstreamClient } from "../../../src/infrastructure/gateway/
 import { StructuredConsoleAuditLog } from "../../../src/infrastructure/observability/StructuredConsoleAuditLog.js";
 import { IdentitySchemaInitializer } from "../../../src/infrastructure/persistence/postgres/IdentitySchemaInitializer.js";
 import { PostgresIdentityRepository } from "../../../src/infrastructure/persistence/postgres/PostgresIdentityRepository.js";
+import { PostgresPrivateConnectorRepository } from "../../../src/infrastructure/persistence/postgres/PostgresPrivateConnectorRepository.js";
 import { HmacWorkloadBundleSignatureService } from "../../../src/infrastructure/security/HmacWorkloadBundleSignatureService.js";
 import { buildApp } from "../../../src/interfaces/http/buildApp.js";
 
@@ -84,6 +86,9 @@ describe("local gateway demo route", () => {
 
     const clock = () => new Date("2026-03-17T09:00:00.000Z");
     const repository = new PostgresIdentityRepository(pool, clock);
+    const privateConnectorRepository = new PostgresPrivateConnectorRepository(
+      pool
+    );
     const auditLog = new StructuredConsoleAuditLog();
     const approvedChatModelCatalog =
       InMemoryApprovedChatModelCatalog.createDefault();
@@ -118,6 +123,11 @@ describe("local gateway demo route", () => {
       new UpsertProviderNodeRoutingProfileUseCase(repository, auditLog, clock),
       new RecordCustomerChargeUseCase(repository, auditLog, clock),
       new RecordCompletedJobSettlementUseCase(repository, auditLog, clock),
+      new CreatePrivateConnectorUseCase(
+        privateConnectorRepository,
+        auditLog,
+        clock
+      ),
       new ResolveSyncPlacementUseCase(repository, auditLog, clock),
       new RecordGatewayUsageMeterEventUseCase(repository, auditLog, clock),
       new GetConsumerDashboardOverviewUseCase(repository, auditLog),

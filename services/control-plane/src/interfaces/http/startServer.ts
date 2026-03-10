@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { Pool } from "pg";
 import { GetConsumerDashboardOverviewUseCase } from "../../application/dashboard/GetConsumerDashboardOverviewUseCase.js";
+import { GetPrivateConnectorDashboardUseCase } from "../../application/dashboard/GetPrivateConnectorDashboardUseCase.js";
 import { GetProviderDashboardOverviewUseCase } from "../../application/dashboard/GetProviderDashboardOverviewUseCase.js";
 import { GetProviderPricingSimulatorUseCase } from "../../application/dashboard/GetProviderPricingSimulatorUseCase.js";
 import { GetFraudReviewAlertsUseCase } from "../../application/fraud/GetFraudReviewAlertsUseCase.js";
@@ -26,6 +27,11 @@ import { IssueOrganizationInvitationUseCase } from "../../application/identity/I
 import { UpdateOrganizationMemberRoleUseCase } from "../../application/identity/UpdateOrganizationMemberRoleUseCase.js";
 import { ExecuteChatCompletionUseCase } from "../../application/gateway/ExecuteChatCompletionUseCase.js";
 import { ExecuteEmbeddingUseCase } from "../../application/gateway/ExecuteEmbeddingUseCase.js";
+import { AdmitPrivateConnectorExecutionGrantUseCase } from "../../application/privateConnector/AdmitPrivateConnectorExecutionGrantUseCase.js";
+import { CreatePrivateConnectorUseCase } from "../../application/privateConnector/CreatePrivateConnectorUseCase.js";
+import { ListPrivateConnectorsUseCase } from "../../application/privateConnector/ListPrivateConnectorsUseCase.js";
+import { RecordPrivateConnectorCheckInUseCase } from "../../application/privateConnector/RecordPrivateConnectorCheckInUseCase.js";
+import { ResolvePrivateConnectorExecutionUseCase } from "../../application/privateConnector/ResolvePrivateConnectorExecutionUseCase.js";
 import { RecordGatewayUsageMeterEventUseCase } from "../../application/metering/RecordGatewayUsageMeterEventUseCase.js";
 import { PrepareSignedEmbeddingWorkloadBundleUseCase } from "../../application/workload/PrepareSignedEmbeddingWorkloadBundleUseCase.js";
 import { PrepareSignedChatWorkloadBundleUseCase } from "../../application/workload/PrepareSignedChatWorkloadBundleUseCase.js";
@@ -53,6 +59,8 @@ import { StructuredConsoleAuditLog } from "../../infrastructure/observability/St
 import { StripeSdkConnectClient } from "../../infrastructure/payments/StripeConnectClient.js";
 import { IdentitySchemaInitializer } from "../../infrastructure/persistence/postgres/IdentitySchemaInitializer.js";
 import { PostgresIdentityRepository } from "../../infrastructure/persistence/postgres/PostgresIdentityRepository.js";
+import { PostgresPrivateConnectorRepository } from "../../infrastructure/persistence/postgres/PostgresPrivateConnectorRepository.js";
+import { HmacPrivateConnectorExecutionGrantSignatureService } from "../../infrastructure/security/HmacPrivateConnectorExecutionGrantSignatureService.js";
 import { HmacWorkloadBundleSignatureService } from "../../infrastructure/security/HmacWorkloadBundleSignatureService.js";
 import { NodeCryptoProviderNodeAttestationVerifier } from "../../infrastructure/security/NodeCryptoProviderNodeAttestationVerifier.js";
 import { buildApp } from "./buildApp.js";
@@ -64,6 +72,9 @@ async function startServer(): Promise<void> {
   await schemaInitializer.ensureSchema();
 
   const repository = new PostgresIdentityRepository(pool);
+  const privateConnectorRepository = new PostgresPrivateConnectorRepository(
+    pool
+  );
   const auditLog = new StructuredConsoleAuditLog();
   const placementScoringPolicy = PlacementScoringPolicy.createDefault();
   const fraudDetectionPolicy = FraudDetectionPolicy.createDefault();
@@ -110,6 +121,11 @@ async function startServer(): Promise<void> {
       : undefined;
   const getConsumerDashboardOverviewUseCase =
     new GetConsumerDashboardOverviewUseCase(repository, auditLog);
+  const getPrivateConnectorDashboardUseCase =
+    new GetPrivateConnectorDashboardUseCase(
+      privateConnectorRepository,
+      auditLog
+    );
   const getProviderDashboardOverviewUseCase =
     new GetProviderDashboardOverviewUseCase(repository, auditLog);
   const getProviderPricingSimulatorUseCase =
@@ -134,6 +150,11 @@ async function startServer(): Promise<void> {
     settings.workloadBundleSigningKey,
     settings.workloadBundleSigningKeyId
   );
+  const privateConnectorExecutionGrantSignatureService =
+    new HmacPrivateConnectorExecutionGrantSignatureService(
+      settings.workloadBundleSigningKey,
+      settings.workloadBundleSigningKeyId
+    );
   const verifySignedWorkloadBundleAdmissionUseCase =
     new VerifySignedWorkloadBundleAdmissionUseCase(
       workloadBundleSignatureService,
@@ -156,6 +177,29 @@ async function startServer(): Promise<void> {
     repository,
     auditLog
   );
+  const createPrivateConnectorUseCase = new CreatePrivateConnectorUseCase(
+    privateConnectorRepository,
+    auditLog
+  );
+  const listPrivateConnectorsUseCase = new ListPrivateConnectorsUseCase(
+    privateConnectorRepository
+  );
+  const recordPrivateConnectorCheckInUseCase =
+    new RecordPrivateConnectorCheckInUseCase(
+      privateConnectorRepository,
+      auditLog
+    );
+  const admitPrivateConnectorExecutionGrantUseCase =
+    new AdmitPrivateConnectorExecutionGrantUseCase(
+      privateConnectorRepository,
+      privateConnectorExecutionGrantSignatureService,
+      auditLog
+    );
+  const resolvePrivateConnectorExecutionUseCase =
+    new ResolvePrivateConnectorExecutionUseCase(
+      privateConnectorRepository,
+      privateConnectorExecutionGrantSignatureService
+    );
   const executeChatCompletionUseCase = new ExecuteChatCompletionUseCase(
     authenticateGatewayApiKeyUseCase,
     approvedChatModelCatalog,
@@ -163,7 +207,10 @@ async function startServer(): Promise<void> {
     prepareSignedChatWorkloadBundleUseCase,
     new FetchGatewayUpstreamClient(),
     gatewayUsageMeterEventUseCase,
-    auditLog
+    auditLog,
+    undefined,
+    undefined,
+    resolvePrivateConnectorExecutionUseCase
   );
   const executeEmbeddingUseCase = new ExecuteEmbeddingUseCase(
     authenticateGatewayApiKeyUseCase,
@@ -306,10 +353,15 @@ async function startServer(): Promise<void> {
       : { processStripeConnectWebhookUseCase }),
     getConsumerDashboardOverviewUseCase,
     getProviderDashboardOverviewUseCase,
+    getPrivateConnectorDashboardUseCase,
     getProviderPricingSimulatorUseCase,
     getFraudReviewAlertsUseCase,
     executeChatCompletionUseCase,
     executeEmbeddingUseCase,
+    createPrivateConnectorUseCase,
+    listPrivateConnectorsUseCase,
+    recordPrivateConnectorCheckInUseCase,
+    admitPrivateConnectorExecutionGrantUseCase,
     uploadGatewayFileUseCase,
     getGatewayFileUseCase,
     createGatewayBatchUseCase,

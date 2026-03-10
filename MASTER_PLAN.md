@@ -1388,6 +1388,7 @@ This service owns the first MVP control-plane slices until extraction pressure j
 - **ADR-0008**: Provider trust scoring and holdback-based fraud controls.
 - **ADR-0009**: Kubernetes/Kata first for vetted clusters; private agents for VM-based providers later.
 - **ADR-0010**: Stripe Connect first for payouts; Tipalti/Adyen optional later for expanded geographies.
+- **ADR-0011**: Enterprise private connector execution uses signed execution grants instead of marketplace workload bundles.
 
 ### Recommended stack
 
@@ -2120,7 +2121,45 @@ This service owns the first MVP control-plane slices until extraction pressure j
     - Dashboard: `README provider pricing simulator demo documents GET /v1/organizations/:organizationId/dashboard/provider-pricing-simulator and the seeded alpha demo now prints a provider pricing simulator URL`
     - ADR: `ADR-0005`
   - **Done criteria:** provider pricing simulator data is live through the control-plane and dashboard, seeded demo output includes a pricing simulator URL, and repository-standard quality gates are green.
-- [ ] `E8-S1` Private cluster connector mode
+- [ ] `E8-S1` Enterprise private connector mode
+  - **Epic:** `E8`
+  - **Sprint:** `SPRINT-03`
+  - **Owner:** `agent`
+  - **Depends on:** `E1-S1`, `E3-S1`, `E4-S1a`, `E6-S1`, `E7-S1d`, `ADR-0001`, `ADR-0007`, `ADR-0009`, `ADR-0011`
+  - **References reviewed:**
+    - [Kubernetes service accounts](https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/)
+    - [Kubernetes projected service account tokens](https://kubernetes.io/docs/concepts/storage/projected-volumes/#serviceaccounttoken)
+    - [SPIFFE](https://spiffe.io/)
+    - [SPIRE docs](https://spiffe.io/docs/latest/)
+    - [OpenRouter provider selection](https://openrouter.ai/docs/guides/routing/provider-selection)
+  - **Acceptance criteria:**
+    - [ ] Buyer owner/admin/finance members can create and view buyer-scoped private connectors via control-plane APIs and `/consumer/private-connectors?organizationId=...&actorUserId=...`
+    - [ ] `POST /v1/chat/completions` honors `x-compushare-private-connector-id` by routing only to the named ready connector with no marketplace fallback
+    - [ ] Both `cluster` and `byok_api` connector modes execute chat requests through the extended runtime service while keeping BYOK secrets only in the customer-operated runtime environment
+    - [ ] Private connector executions emit audit and metering records with `executionTargetType=private_connector` and never create provider settlement or payout side effects
+    - [ ] Connector check-ins and runtime-admission verification keep readiness explicit and observable through the control-plane and dashboard
+  - **Implementation slices:**
+    - [ ] `E8-S1a` Add private connector registry, signed execution grants, and gateway private routing in the control-plane
+    - [ ] `E8-S1b` Extend the runtime service for `cluster` and `byok_api` private connector execution plus connector check-ins
+    - [ ] `E8-S1c` Add buyer dashboard, demo/docs evidence, and KPI proof for private connector mode
+  - **KPIs:**
+    - correctness: `100%` acceptance tests pass
+    - changed-code coverage: `>= 90%`
+    - critical-path coverage: `>= 95%`
+    - type-check errors: `0`
+    - lint/format violations: `0`
+    - flaky reruns: `0 / 20`
+    - p95 control-plane connector read/create latency on local acceptance fixture: `< 200 ms`
+    - p95 private connector gateway overhead excluding upstream latency on local acceptance fixture: `< 150 ms`
+    - private-to-marketplace fallback count when `x-compushare-private-connector-id` is present: `0`
+    - private execution settlement leakage count: `0`
+  - **Evidence:**
+    - PR:
+    - CI:
+    - Benchmark:
+    - Dashboard:
+    - ADR: `ADR-0011`
+  - **Done criteria:** buyer-scoped private connectors are live in the control-plane, runtime, and dashboard; both connector modes are exercised locally; private executions stay out of provider settlement/payout paths; and repository-standard gates are green.
 - [ ] `E9-S1` Subprocessor registry and DPA export pack
 
 ---
@@ -2200,6 +2239,10 @@ This service owns the first MVP control-plane slices until extraction pressure j
   - [x] Control-plane provider pricing simulator read model + route
   - [x] Per-node dashboard scenario comparison screen
   - [x] Demo/docs/evidence refresh
+- [ ] `E8-S1` Enterprise private connector mode
+  - [ ] Private connector registry + signed execution grant path
+  - [ ] Runtime support for `cluster` and `byok_api` private connectors
+  - [ ] Buyer dashboard + demo/docs/evidence refresh
 - [ ] Beta security review
 - [ ] Closed beta with live but capped spend
 

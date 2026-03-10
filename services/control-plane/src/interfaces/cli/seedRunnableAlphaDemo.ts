@@ -10,6 +10,7 @@ import { RecordGatewayUsageMeterEventUseCase } from "../../application/metering/
 import { CreateOrganizationUseCase } from "../../application/identity/CreateOrganizationUseCase.js";
 import { IssueOrganizationApiKeyUseCase } from "../../application/identity/IssueOrganizationApiKeyUseCase.js";
 import { ResolveSyncPlacementUseCase } from "../../application/placement/ResolveSyncPlacementUseCase.js";
+import { CreatePrivateConnectorUseCase } from "../../application/privateConnector/CreatePrivateConnectorUseCase.js";
 import { EnrollProviderNodeUseCase } from "../../application/provider/EnrollProviderNodeUseCase.js";
 import { ReplaceProviderNodeRoutingStateUseCase } from "../../application/provider/ReplaceProviderNodeRoutingStateUseCase.js";
 import { RecordProviderBenchmarkUseCase } from "../../application/provider/RecordProviderBenchmarkUseCase.js";
@@ -20,6 +21,7 @@ import { loadDemoSeedSettings } from "../../config/DemoSeedSettings.js";
 import { StructuredConsoleAuditLog } from "../../infrastructure/observability/StructuredConsoleAuditLog.js";
 import { IdentitySchemaInitializer } from "../../infrastructure/persistence/postgres/IdentitySchemaInitializer.js";
 import { PostgresIdentityRepository } from "../../infrastructure/persistence/postgres/PostgresIdentityRepository.js";
+import { PostgresPrivateConnectorRepository } from "../../infrastructure/persistence/postgres/PostgresPrivateConnectorRepository.js";
 
 export interface SeedRunnableAlphaDemoCliOptions {
   environment?: NodeJS.ProcessEnv;
@@ -33,9 +35,11 @@ export function formatSeedRunnableAlphaDemoSummary(
   return [
     "Seeded runnable alpha demo data.",
     `Buyer dashboard: ${result.buyer.dashboardUrl}`,
+    `Buyer private connectors: ${result.buyer.privateConnectorDashboardUrl}`,
     `Provider dashboard: ${result.provider.dashboardUrl}`,
     `Provider pricing simulator: ${result.provider.pricingDashboardUrl}`,
     `Gateway demo: ${result.gatewayDemo.curlCommand}`,
+    `Private connector demo: ${result.buyer.privateConnectorCurlCommand}`,
     `Embeddings demo: ${result.embeddingDemo.curlCommand}`,
     `Batch input sample: printf '%s\\n' '${result.batchDemo.inputJsonl.replaceAll("'", "'\\''")}' > ${result.batchDemo.inputFilePath}`,
     `Batch file upload: ${result.batchDemo.uploadCurlCommand}`,
@@ -75,6 +79,7 @@ export async function seedRunnableAlphaDemoCli(
     await schemaInitializer.ensureSchema();
 
     const repository = new PostgresIdentityRepository(pool, options.clock);
+    const privateConnectorRepository = new PostgresPrivateConnectorRepository(pool);
     const auditLog = new StructuredConsoleAuditLog();
     const approvedChatModelCatalog =
       InMemoryApprovedChatModelCatalog.createDefault();
@@ -109,6 +114,11 @@ export async function seedRunnableAlphaDemoCli(
       new RecordCustomerChargeUseCase(repository, auditLog, options.clock),
       new RecordCompletedJobSettlementUseCase(
         repository,
+        auditLog,
+        options.clock
+      ),
+      new CreatePrivateConnectorUseCase(
+        privateConnectorRepository,
         auditLog,
         options.clock
       ),

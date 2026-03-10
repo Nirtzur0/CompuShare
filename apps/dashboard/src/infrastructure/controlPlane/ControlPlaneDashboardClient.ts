@@ -3,6 +3,10 @@ import {
   type ConsumerDashboardOverviewSnapshot,
 } from "../../domain/consumer/ConsumerDashboardOverview.js";
 import {
+  PrivateConnectorDashboard,
+  type PrivateConnectorDashboardSnapshot,
+} from "../../domain/consumer/PrivateConnectorDashboard.js";
+import {
   ProviderDashboardOverview,
   type ProviderDashboardOverviewSnapshot,
 } from "../../domain/provider/ProviderDashboardOverview.js";
@@ -17,6 +21,10 @@ interface ProviderDashboardOverviewEnvelope {
 
 interface ProviderPricingSimulatorEnvelope {
   simulator: ProviderPricingSimulatorSnapshot;
+}
+
+interface PrivateConnectorDashboardEnvelope {
+  dashboard: PrivateConnectorDashboardSnapshot;
 }
 
 interface ConsumerDashboardOverviewEnvelope {
@@ -53,6 +61,35 @@ export class ControlPlaneDashboardClient {
       (await response.json()) as ConsumerDashboardOverviewEnvelope;
 
     return ConsumerDashboardOverview.create(payload.overview);
+  }
+
+  public async getPrivateConnectorDashboard(input: {
+    organizationId: string;
+    actorUserId: string;
+  }): Promise<PrivateConnectorDashboard> {
+    const url = new URL(
+      `/v1/organizations/${input.organizationId}/dashboard/private-connectors`,
+      this.baseUrl,
+    );
+    url.searchParams.set("actorUserId", input.actorUserId);
+
+    const response = await fetch(url, {
+      headers: {
+        accept: "application/json",
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Private connector dashboard request failed with status ${String(response.status)}.`,
+      );
+    }
+
+    const payload =
+      (await response.json()) as PrivateConnectorDashboardEnvelope;
+
+    return PrivateConnectorDashboard.create(payload.dashboard);
   }
 
   public async getProviderDashboardOverview(input: {
@@ -111,5 +148,45 @@ export class ControlPlaneDashboardClient {
       (await response.json()) as ProviderPricingSimulatorEnvelope;
 
     return ProviderPricingSimulator.create(payload.simulator);
+  }
+
+  public async createPrivateConnector(input: {
+    organizationId: string;
+    actorUserId: string;
+    environment: "development" | "staging" | "production";
+    label: string;
+    mode: "cluster" | "byok_api";
+    endpointUrl: string;
+    modelMappings: {
+      requestModelAlias: string;
+      upstreamModelId: string;
+    }[];
+  }): Promise<void> {
+    const url = new URL(
+      `/v1/organizations/${input.organizationId}/private-connectors`,
+      this.baseUrl,
+    );
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      cache: "no-store",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+        environment: input.environment,
+        label: input.label,
+        mode: input.mode,
+        endpointUrl: input.endpointUrl,
+        modelMappings: input.modelMappings,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Private connector create request failed with status ${String(response.status)}.`,
+      );
+    }
   }
 }

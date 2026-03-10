@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ControlPlaneDashboardClient } from "../../../src/infrastructure/controlPlane/ControlPlaneDashboardClient.js";
 import type { ConsumerDashboardOverviewSnapshot } from "../../../src/domain/consumer/ConsumerDashboardOverview.js";
+import type { PrivateConnectorDashboardSnapshot } from "../../../src/domain/consumer/PrivateConnectorDashboard.js";
 import type { ProviderDashboardOverviewSnapshot } from "../../../src/domain/provider/ProviderDashboardOverview.js";
 import type { ProviderPricingSimulatorSnapshot } from "../../../src/domain/provider/ProviderPricingSimulator.js";
 
@@ -148,6 +149,45 @@ describe("ControlPlaneDashboardClient", () => {
     });
   });
 
+  it("loads a private connector dashboard from the control-plane", async () => {
+    const snapshot: PrivateConnectorDashboardSnapshot = {
+      organizationId: "org-123",
+      actorRole: "finance",
+      readyConnectorCount: 1,
+      staleConnectorCount: 1,
+      connectors: [],
+    };
+    const fetchMock = vi.fn<FetchMockSignature>(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ dashboard: snapshot }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ControlPlaneDashboardClient("http://127.0.0.1:3000");
+    const dashboard = await client.getPrivateConnectorDashboard({
+      organizationId: "org-123",
+      actorUserId: "user-123",
+    });
+
+    expect(dashboard.readyConnectorCount).toBe(1);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [requestUrl, requestInit] = fetchMock.mock.calls[0] ?? [];
+
+    expect(requestUrl).toBeInstanceOf(URL);
+    expect((requestUrl as URL).href).toContain(
+      "/v1/organizations/org-123/dashboard/private-connectors?actorUserId=user-123",
+    );
+    expect(requestInit).toMatchObject({
+      cache: "no-store",
+    });
+  });
+
   it("loads a provider pricing simulator from the control-plane", async () => {
     const snapshot: ProviderPricingSimulatorSnapshot = {
       organizationId: "org-123",
@@ -232,5 +272,66 @@ describe("ControlPlaneDashboardClient", () => {
     ).rejects.toThrow(
       "Provider pricing simulator request failed with status 403.",
     );
+  });
+
+  it("posts private connector creation to the control-plane", async () => {
+    const fetchMock = vi.fn<FetchMockSignature>(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ connector: { id: "connector-1" } }), {
+          status: 201,
+          headers: {
+            "content-type": "application/json",
+          },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ControlPlaneDashboardClient("http://127.0.0.1:3000");
+
+    await expect(
+      client.createPrivateConnector({
+        organizationId: "org-123",
+        actorUserId: "user-123",
+        environment: "development",
+        label: "Primary connector",
+        mode: "cluster",
+        endpointUrl: "http://connector.internal",
+        modelMappings: [
+          {
+            requestModelAlias: "openai/gpt-oss-120b-like",
+            upstreamModelId: "gpt-oss-120b-instruct",
+          },
+        ],
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [requestUrl, requestInit] = fetchMock.mock.calls[0] ?? [];
+
+    expect((requestUrl as URL).href).toContain(
+      "/v1/organizations/org-123/private-connectors",
+    );
+    expect(requestInit).toMatchObject({
+      method: "POST",
+      cache: "no-store",
+    });
+    expect(
+      JSON.parse(
+        typeof requestInit?.body === "string" ? requestInit.body : "{}",
+      ),
+    ).toMatchObject({
+      actorUserId: "user-123",
+      environment: "development",
+      label: "Primary connector",
+      mode: "cluster",
+      endpointUrl: "http://connector.internal",
+      modelMappings: [
+        {
+          requestModelAlias: "openai/gpt-oss-120b-like",
+          upstreamModelId: "gpt-oss-120b-instruct",
+        },
+      ],
+    });
   });
 });

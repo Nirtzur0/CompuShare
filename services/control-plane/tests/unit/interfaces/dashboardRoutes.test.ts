@@ -6,6 +6,12 @@ import {
   type GetConsumerDashboardOverviewResponse
 } from "../../../src/application/dashboard/GetConsumerDashboardOverviewUseCase.js";
 import {
+  PrivateConnectorDashboardAuthorizationError,
+  PrivateConnectorDashboardCapabilityRequiredError,
+  PrivateConnectorDashboardOrganizationNotFoundError,
+  type GetPrivateConnectorDashboardResponse
+} from "../../../src/application/dashboard/GetPrivateConnectorDashboardUseCase.js";
+import {
   ProviderDashboardAuthorizationError,
   ProviderDashboardCapabilityRequiredError,
   ProviderDashboardOrganizationNotFoundError,
@@ -31,6 +37,12 @@ function createApp(input: {
       organizationId: string;
       actorUserId: string;
     }) => Promise<GetProviderDashboardOverviewResponse>;
+  };
+  getPrivateConnectorDashboardUseCase?: {
+    execute: (input: {
+      organizationId: string;
+      actorUserId: string;
+    }) => Promise<GetPrivateConnectorDashboardResponse>;
   };
   getProviderPricingSimulatorUseCase?: {
     execute: (input: {
@@ -75,6 +87,12 @@ function createApp(input: {
       input.getConsumerDashboardOverviewUseCase,
     getProviderDashboardOverviewUseCase:
       input.getProviderDashboardOverviewUseCase,
+    ...(input.getPrivateConnectorDashboardUseCase === undefined
+      ? {}
+      : {
+          getPrivateConnectorDashboardUseCase:
+            input.getPrivateConnectorDashboardUseCase
+        }),
     ...(input.getProviderPricingSimulatorUseCase === undefined
       ? {}
       : {
@@ -234,6 +252,56 @@ describe("dashboard routes", () => {
     });
   });
 
+  it("returns the private connector dashboard snapshot", async () => {
+    const app = createApp({
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      },
+      getPrivateConnectorDashboardUseCase: {
+        execute: () =>
+          Promise.resolve({
+            dashboard: {
+              organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
+              actorRole: "finance",
+              readyConnectorCount: 1,
+              staleConnectorCount: 1,
+              connectors: [
+                {
+                  id: "05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+                  label: "Primary connector",
+                  environment: "development",
+                  mode: "cluster",
+                  status: "ready",
+                  endpointUrl: "http://connector.internal",
+                  runtimeVersion: "runtime-1",
+                  lastCheckInAt: "2026-03-10T10:00:00.000Z",
+                  modelMappings: []
+                }
+              ]
+            }
+          })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/private-connectors?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      dashboard: {
+        readyConnectorCount: 1,
+        staleConnectorCount: 1
+      }
+    });
+  });
+
   it("returns 400 for invalid provider dashboard params", async () => {
     const app = createApp({
       getConsumerDashboardOverviewUseCase: {
@@ -327,6 +395,91 @@ describe("dashboard routes", () => {
     expect(response.statusCode).toBe(403);
     expect(response.json()).toMatchObject({
       error: "PROVIDER_DASHBOARD_CAPABILITY_REQUIRED"
+    });
+  });
+
+  it("maps private connector dashboard organization misses to 404", async () => {
+    const app = createApp({
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      },
+      getPrivateConnectorDashboardUseCase: {
+        execute: () =>
+          Promise.reject(
+            new PrivateConnectorDashboardOrganizationNotFoundError(
+              "87057cb0-e0ca-4095-9f25-dd8103408b18"
+            )
+          )
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/private-connectors?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      error: "PRIVATE_CONNECTOR_DASHBOARD_ORGANIZATION_NOT_FOUND"
+    });
+  });
+
+  it("maps private connector dashboard capability failures to 403", async () => {
+    const app = createApp({
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      },
+      getPrivateConnectorDashboardUseCase: {
+        execute: () =>
+          Promise.reject(new PrivateConnectorDashboardCapabilityRequiredError())
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/private-connectors?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: "PRIVATE_CONNECTOR_DASHBOARD_CAPABILITY_REQUIRED"
+    });
+  });
+
+  it("maps private connector dashboard authorization failures to 403", async () => {
+    const app = createApp({
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      },
+      getPrivateConnectorDashboardUseCase: {
+        execute: () =>
+          Promise.reject(new PrivateConnectorDashboardAuthorizationError())
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/private-connectors?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: "PRIVATE_CONNECTOR_DASHBOARD_AUTHORIZATION_ERROR"
     });
   });
 

@@ -383,7 +383,22 @@ h2 {
   font: inherit;
 }
 
+.pricing-input select {
+  width: 100%;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  font: inherit;
+}
+
 .pricing-input input:focus {
+  outline: 2px solid rgba(198, 93, 58, 0.24);
+  outline-offset: 2px;
+}
+
+.pricing-input select:focus {
   outline: 2px solid rgba(198, 93, 58, 0.24);
   outline-offset: 2px;
 }
@@ -406,6 +421,106 @@ h2 {
   margin: 0 0 0.35rem;
   font-size: 1.1rem;
   font-weight: 700;
+}
+
+.status-ready {
+  background: rgba(31, 122, 85, 0.12);
+  color: var(--success);
+}
+
+.status-pending,
+.status-stale,
+.status-disabled {
+  background: rgba(155, 91, 28, 0.12);
+  color: var(--warning);
+}
+
+.private-connector-form-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.private-connector-header {
+  margin-bottom: 0;
+}
+
+.private-connector-form {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.private-connector-form-span,
+.private-connector-form-actions {
+  grid-column: 1 / -1;
+}
+
+.private-connector-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.primary-button {
+  padding: 0.85rem 1.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #d9835a 0%, var(--accent) 100%);
+  color: #fff9ef;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.private-connector-error {
+  margin: 0;
+  color: #9a1f1f;
+  font-weight: 700;
+}
+
+.private-connector-snippet {
+  overflow-x: auto;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+.private-connector-baseline-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.private-connector-date {
+  font-size: 1.05rem;
+}
+
+.private-connector-mappings {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.private-connector-mapping {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.private-connector-mapping span {
+  color: var(--muted);
 }
 
 @media (max-width: 900px) {
@@ -431,7 +546,9 @@ h2 {
 
   .pricing-baseline-grid,
   .pricing-input-grid,
-  .pricing-comparison-grid {
+  .pricing-comparison-grid,
+  .private-connector-form,
+  .private-connector-baseline-grid {
     grid-template-columns: 1fr;
   }
 

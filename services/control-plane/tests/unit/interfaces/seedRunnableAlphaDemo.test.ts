@@ -51,6 +51,15 @@ describe("seedRunnableAlphaDemo CLI", () => {
 
     expect(result.seedTag).toBe("cli-demo");
     expect(result.buyer.dashboardUrl).toContain("/consumer?");
+    expect(result.buyer.privateConnectorDashboardUrl).toContain(
+      "/consumer/private-connectors?"
+    );
+    expect(result.buyer.privateConnector.label).toBe(
+      "Runnable Alpha Private Cluster Connector"
+    );
+    expect(result.buyer.privateConnectorCurlCommand).toContain(
+      "x-compushare-private-connector-id"
+    );
     expect(result.provider.dashboardUrl).toContain("/provider?");
     expect(result.provider.pricingDashboardUrl).toContain("/provider/pricing?");
     expect(result.provider.node.label).toBe("Runnable Alpha Warm Node");
@@ -81,9 +90,11 @@ describe("seedRunnableAlphaDemo CLI", () => {
     expect(result.batchDemo.workerCommand).toBe("pnpm dev:batch-worker");
     expect(summary).toContain("Seeded runnable alpha demo data.");
     expect(summary).toContain(result.buyer.dashboardUrl);
+    expect(summary).toContain(result.buyer.privateConnectorDashboardUrl);
     expect(summary).toContain(result.provider.pricingDashboardUrl);
     expect(summary).toContain(result.provider.apiKey.secret);
     expect(summary).toContain(result.gatewayDemo.curlCommand);
+    expect(summary).toContain(result.buyer.privateConnectorCurlCommand);
     expect(summary).toContain(result.embeddingDemo.curlCommand);
     expect(summary).toContain(result.batchDemo.uploadCurlCommand);
     expect(summary).toContain(result.batchDemo.workerCommand);

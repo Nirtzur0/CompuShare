@@ -48,7 +48,7 @@ pnpm dev:provider-runtime
 pnpm dev:batch-worker
 ```
 
-7. Seed demo data. The command prints JSON to stdout and a readable summary with ready-to-open buyer dashboard, provider overview, provider pricing simulator, chat, embeddings, and batch demo commands:
+7. Seed demo data. The command prints JSON to stdout and a readable summary with ready-to-open buyer dashboard, buyer private connector dashboard, provider overview, provider pricing simulator, chat, private connector, embeddings, and batch demo commands:
 
 ```bash
 pnpm seed:demo
@@ -65,6 +65,39 @@ The dashboard runs on `http://127.0.0.1:3000` by default. The control-plane runs
 ## End-to-end gateway demo
 
 After seeding, run the emitted curl command against the control-plane gateway. The request will route to the local provider runtime, the provider runtime will call control-plane runtime admission with its scoped provider API key, and the mock completion response will come back through the real gateway path.
+
+## Private connector demo
+
+The control-plane also supports buyer-scoped private connectors. After `pnpm seed:demo`, open the emitted buyer private connector dashboard URL or use this form:
+
+```text
+http://127.0.0.1:3000/consumer/private-connectors?organizationId=<buyer_org_id>&actorUserId=<buyer_finance_user_id>
+```
+
+The seeded demo creates one `cluster` connector that points at the provider-runtime private connector endpoint. The gateway only routes privately when you send `x-compushare-private-connector-id`:
+
+```bash
+curl -sS \
+  -H "Authorization: Bearer <buyer_api_key>" \
+  -H "Content-Type: application/json" \
+  -H "x-compushare-private-connector-id: <private_connector_id>" \
+  -X POST http://127.0.0.1:3100/v1/chat/completions \
+  -d '{"model":"openai/gpt-oss-120b-like","messages":[{"role":"user","content":"Route this request through the private connector."}]}'
+```
+
+### Private connector runtime mode
+
+To run `services/provider-runtime` as a private connector instead of a marketplace provider node, set these env vars in [services/provider-runtime/.env.example](/Users/nirtzur/Documents/projects/CompuShare/services/provider-runtime/.env.example) or your local `.env`:
+
+- `PRIVATE_CONNECTOR_ORGANIZATION_ID`
+- `PRIVATE_CONNECTOR_ENVIRONMENT`
+- `PRIVATE_CONNECTOR_ID`
+- `PRIVATE_CONNECTOR_MODE=cluster|byok_api`
+- `PRIVATE_CONNECTOR_FORWARD_BASE_URL`
+- `PRIVATE_CONNECTOR_ORG_API_KEY`
+- `PRIVATE_CONNECTOR_UPSTREAM_API_KEY` only for `byok_api`
+
+On startup, the runtime posts periodic private connector check-ins every `30s` by default and exposes `POST /v1/private-connectors/chat/completions`.
 
 ## Embeddings demo
 

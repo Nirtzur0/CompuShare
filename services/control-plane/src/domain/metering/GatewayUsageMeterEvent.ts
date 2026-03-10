@@ -9,13 +9,15 @@ export interface GatewayUsageMeterEventSnapshot {
   workloadBundleId: string;
   occurredAt: string;
   customerOrganizationId: string;
-  providerOrganizationId: string;
-  providerNodeId: string;
+  executionTargetType?: "marketplace_provider" | "private_connector";
+  providerOrganizationId: string | null;
+  providerNodeId: string | null;
+  privateConnectorId?: string | null;
   environment: OrganizationApiKeyEnvironment;
   requestKind: string;
   approvedModelAlias: string;
-  manifestId: string;
-  decisionLogId: string;
+  manifestId: string | null;
+  decisionLogId: string | null;
   batchId?: string | null;
   batchItemId?: string | null;
   promptTokens: number;
@@ -29,13 +31,17 @@ export class GatewayUsageMeterEvent {
     public readonly workloadBundleId: string,
     public readonly occurredAt: Date,
     public readonly customerOrganizationId: OrganizationId,
-    public readonly providerOrganizationId: OrganizationId,
-    public readonly providerNodeId: string,
+    public readonly executionTargetType:
+      | "marketplace_provider"
+      | "private_connector",
+    public readonly providerOrganizationId: OrganizationId | null,
+    public readonly providerNodeId: string | null,
+    public readonly privateConnectorId: string | null,
     public readonly environment: OrganizationApiKeyEnvironment,
     public readonly requestKind: "chat.completions" | "embeddings",
     public readonly approvedModelAlias: string,
-    public readonly manifestId: string,
-    public readonly decisionLogId: string,
+    public readonly manifestId: string | null,
+    public readonly decisionLogId: string | null,
     public readonly batchId: string | null,
     public readonly batchItemId: string | null,
     public readonly promptTokens: number,
@@ -47,8 +53,11 @@ export class GatewayUsageMeterEvent {
   public static record(
     input: GatewayUsageMeterEventSnapshot
   ): GatewayUsageMeterEvent {
+    const executionTargetType: string =
+      input.executionTargetType ?? "marketplace_provider";
+    const privateConnectorId = input.privateConnectorId ?? null;
     const approvedModelAlias = input.approvedModelAlias.trim();
-    const manifestId = input.manifestId.trim();
+    const manifestId = input.manifestId?.trim() ?? null;
     const requestKind = input.requestKind;
 
     if (approvedModelAlias.length < 3 || approvedModelAlias.length > 120) {
@@ -57,15 +66,72 @@ export class GatewayUsageMeterEvent {
       );
     }
 
-    if (manifestId.length < 3 || manifestId.length > 120) {
+    if (requestKind !== "chat.completions" && requestKind !== "embeddings") {
+      throw new DomainValidationError(
+        "Gateway usage request kind must be chat.completions or embeddings."
+      );
+    }
+
+    if (executionTargetType === "marketplace_provider") {
+      if (
+        input.providerOrganizationId === null ||
+        input.providerNodeId === null ||
+        input.manifestId === null ||
+        input.decisionLogId === null ||
+        privateConnectorId !== null
+      ) {
+        throw new DomainValidationError(
+          "Marketplace provider usage events require provider IDs, manifest ID, and decision log ID."
+        );
+      }
+    }
+
+    if (executionTargetType === "private_connector") {
+      if (
+        privateConnectorId === null ||
+        input.providerOrganizationId !== null ||
+        input.providerNodeId !== null
+      ) {
+        throw new DomainValidationError(
+          "Private connector usage events require a private connector ID and no provider IDs."
+        );
+      }
+    }
+
+    if (
+      executionTargetType !== "marketplace_provider" &&
+      executionTargetType !== "private_connector"
+    ) {
+      throw new DomainValidationError(
+        "Gateway usage execution target type must be marketplace_provider or private_connector."
+      );
+    }
+
+    if (manifestId !== null && (manifestId.length < 3 || manifestId.length > 120)) {
       throw new DomainValidationError(
         "Manifest identifiers must be between 3 and 120 characters."
       );
     }
 
-    if (requestKind !== "chat.completions" && requestKind !== "embeddings") {
+    if (
+      input.decisionLogId !== null &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        input.decisionLogId
+      )
+    ) {
       throw new DomainValidationError(
-        "Gateway usage request kind must be chat.completions or embeddings."
+        "Decision log IDs must be valid UUIDs when provided."
+      );
+    }
+
+    if (
+      privateConnectorId !== null &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        privateConnectorId
+      )
+    ) {
+      throw new DomainValidationError(
+        "Private connector IDs must be valid UUIDs when provided."
       );
     }
 
@@ -98,12 +164,16 @@ export class GatewayUsageMeterEvent {
       input.workloadBundleId,
       new Date(input.occurredAt),
       OrganizationId.create(input.customerOrganizationId),
-      OrganizationId.create(input.providerOrganizationId),
+      executionTargetType,
+      input.providerOrganizationId === null
+        ? null
+        : OrganizationId.create(input.providerOrganizationId),
       input.providerNodeId,
+      privateConnectorId,
       parseOrganizationApiKeyEnvironment(input.environment),
       requestKind,
       approvedModelAlias,
-      manifestId,
+      input.manifestId,
       input.decisionLogId,
       input.batchId ?? null,
       input.batchItemId ?? null,
@@ -119,8 +189,10 @@ export class GatewayUsageMeterEvent {
       workloadBundleId: this.workloadBundleId,
       occurredAt: this.occurredAt.toISOString(),
       customerOrganizationId: this.customerOrganizationId.value,
-      providerOrganizationId: this.providerOrganizationId.value,
+      executionTargetType: this.executionTargetType,
+      providerOrganizationId: this.providerOrganizationId?.value ?? null,
       providerNodeId: this.providerNodeId,
+      privateConnectorId: this.privateConnectorId,
       environment: this.environment,
       requestKind: this.requestKind,
       approvedModelAlias: this.approvedModelAlias,

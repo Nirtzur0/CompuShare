@@ -217,6 +217,135 @@ describe("ExecuteChatCompletionUseCase", () => {
     });
   });
 
+  it("routes to an explicit private connector without marketplace metering fields", async () => {
+    const meteringRequests: unknown[] = [];
+    const useCase = new ExecuteChatCompletionUseCase(
+      {
+        execute: () =>
+          Promise.resolve({
+            authorized: true,
+            scope: {
+              organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+              environment: "production"
+            },
+            apiKey: {
+              id: "d3939649-841a-4f95-b2fa-b13d464f0d43",
+              label: "Gateway key",
+              secretPrefix: "csk_gateway_",
+              issuedByUserId: "f5d6a4d7-3171-4f39-8d63-e1b5153e262c",
+              createdAt: "2026-03-09T00:00:00.000Z",
+              lastUsedAt: "2026-03-09T20:00:00.000Z"
+            }
+          })
+      } as never,
+      InMemoryApprovedChatModelCatalog.createDefault(),
+      {
+        execute: () => Promise.reject(new Error("marketplace path should not run"))
+      } as never,
+      {
+        execute: () => Promise.reject(new Error("bundle path should not run"))
+      } as never,
+      {
+        dispatchChatCompletion: ({ endpointUrl, request, headers }) => {
+          expect(endpointUrl).toBe(
+            "https://private-connector.example.com/v1/private-connectors/chat/completions?organizationId=0d6b1676-f112-41d6-9f98-27277a0dba79&environment=production&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0"
+          );
+          expect(request.model).toBe("gpt-oss-120b-instruct");
+          expect(headers?.["x-compushare-private-execution-grant"]).toEqual(
+            expect.any(String)
+          );
+          expect(headers?.["x-compushare-private-execution-signature"]).toBe(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+          );
+
+          return Promise.resolve({
+            id: "chatcmpl-private-123",
+            object: "chat.completion",
+            created: 1_772_001_200,
+            model: request.model,
+            choices: [
+              {
+                index: 0,
+                finish_reason: "stop",
+                message: {
+                  role: "assistant",
+                  content: "Hello from the private connector."
+                }
+              }
+            ],
+            usage: {
+              prompt_tokens: 12,
+              completion_tokens: 8,
+              total_tokens: 20
+            }
+          });
+        },
+        dispatchEmbedding: createUnusedEmbeddingDispatch()
+      },
+      {
+        execute: (request: unknown) => {
+          meteringRequests.push(request);
+          return Promise.resolve({ event: {} as never });
+        }
+      } as never,
+      {
+        record: () => Promise.resolve()
+      },
+      () => new Date("2026-03-09T20:30:00.000Z"),
+      () => 10,
+      {
+        execute: () =>
+          Promise.resolve({
+            connector: {
+              id: "05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+              mode: "cluster",
+              endpointUrl:
+                "https://private-connector.example.com/v1/private-connectors/chat/completions"
+            },
+            grant: {
+              grant: {
+                grantId: "2fd0c70d-4a01-44fc-92ee-6e68c4fef34e",
+                organizationId: "0d6b1676-f112-41d6-9f98-27277a0dba79",
+                connectorId: "05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+                environment: "production",
+                requestKind: "chat.completions",
+                requestModelAlias: "openai/gpt-oss-120b-like",
+                upstreamModelId: "gpt-oss-120b-instruct",
+                maxTokens: 4096,
+                issuedAt: "2026-03-09T20:30:00.000Z",
+                expiresAt: "2026-03-09T20:35:00.000Z"
+              },
+              signature:
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              signatureKeyId: "local-hmac-v1"
+            }
+          })
+      }
+    );
+
+    const response = await useCase.execute({
+      authorizationHeader: "Bearer csk_gateway_secret_value_000000",
+      privateConnectorId: "05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      request: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }]
+      }
+    });
+
+    expect(response.model).toBe("openai/gpt-oss-120b-like");
+    expect(meteringRequests).toMatchObject([
+      {
+        executionTargetType: "private_connector",
+        providerOrganizationId: null,
+        providerNodeId: null,
+        privateConnectorId: "05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+        manifestId: null,
+        decisionLogId: null,
+        totalTokens: 20
+      }
+    ]);
+  });
+
   it("rejects malformed authorization headers", async () => {
     const useCase = new ExecuteChatCompletionUseCase(
       { execute: async () => Promise.reject(new Error("unused")) } as never,

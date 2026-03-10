@@ -11,6 +11,7 @@ import type { EnrollProviderNodeUseCase } from "../provider/EnrollProviderNodeUs
 import type { ReplaceProviderNodeRoutingStateUseCase } from "../provider/ReplaceProviderNodeRoutingStateUseCase.js";
 import type { RecordProviderBenchmarkUseCase } from "../provider/RecordProviderBenchmarkUseCase.js";
 import type { UpsertProviderNodeRoutingProfileUseCase } from "../provider/UpsertProviderNodeRoutingProfileUseCase.js";
+import type { CreatePrivateConnectorUseCase } from "../privateConnector/CreatePrivateConnectorUseCase.js";
 
 export interface SeedRunnableAlphaDemoRequest {
   controlPlaneBaseUrl: string;
@@ -50,12 +51,17 @@ export interface SeedRunnableAlphaDemoResponse {
     organizationSlug: string;
     actorUserId: string;
     dashboardUrl: string;
+    privateConnectorDashboardUrl: string;
+    privateConnectorCurlCommand: string;
     apiKey: {
       id: string;
       environment: string;
       secretPrefix: string;
       secret: string;
     };
+    privateConnector: Awaited<
+      ReturnType<CreatePrivateConnectorUseCase["execute"]>
+    >["connector"];
     consumerOverview: Awaited<
       ReturnType<GetConsumerDashboardOverviewUseCase["execute"]>
     >["overview"];
@@ -119,6 +125,10 @@ export class SeedRunnableAlphaDemo {
       RecordCompletedJobSettlementUseCase,
       "execute"
     >,
+    private readonly createPrivateConnectorUseCase: Pick<
+      CreatePrivateConnectorUseCase,
+      "execute"
+    >,
     private readonly resolveSyncPlacementUseCase: Pick<
       ResolveSyncPlacementUseCase,
       "execute"
@@ -170,6 +180,26 @@ export class SeedRunnableAlphaDemo {
       actorUserId: providerOrganization.founder.userId,
       label: "Runnable alpha provider key",
       environment: "development"
+    });
+    const privateConnector = await this.createPrivateConnectorUseCase.execute({
+      organizationId: buyerOrganization.organization.id,
+      actorUserId: buyerOrganization.founder.userId,
+      environment: buyerApiKey.apiKey.environment as
+        | "development"
+        | "staging"
+        | "production",
+      label: "Runnable Alpha Private Cluster Connector",
+      mode: "cluster",
+      endpointUrl: new URL(
+        "/v1/private-connectors/chat/completions",
+        request.providerRuntimeBaseUrl
+      ).toString(),
+      modelMappings: [
+        {
+          requestModelAlias: "openai/gpt-oss-120b-like",
+          upstreamModelId: "gpt-oss-120b-instruct"
+        }
+      ]
     });
     const providerNode = await this.enrollProviderNodeUseCase.execute({
       organizationId: providerOrganization.organization.id,
@@ -333,12 +363,24 @@ export class SeedRunnableAlphaDemo {
           organizationId: buyerOrganization.organization.id,
           actorUserId: buyerOrganization.founder.userId
         }),
+        privateConnectorDashboardUrl: this.buildDashboardUrl({
+          baseUrl: request.dashboardBaseUrl,
+          pathname: "/consumer/private-connectors",
+          organizationId: buyerOrganization.organization.id,
+          actorUserId: buyerOrganization.founder.userId
+        }),
+        privateConnectorCurlCommand: this.buildPrivateConnectorCurlCommand({
+          controlPlaneBaseUrl: request.controlPlaneBaseUrl,
+          buyerApiKey: buyerApiKey.secret,
+          connectorId: privateConnector.connector.id
+        }),
         apiKey: {
           id: buyerApiKey.apiKey.id,
           environment: buyerApiKey.apiKey.environment,
           secretPrefix: buyerApiKey.apiKey.secretPrefix,
           secret: buyerApiKey.secret
         },
+        privateConnector: privateConnector.connector,
         consumerOverview: consumerOverview.overview
       },
       provider: {
@@ -442,6 +484,30 @@ export class SeedRunnableAlphaDemo {
       "-H 'Content-Type: application/json'",
       `-X POST '${embeddingUrl}'`,
       `-d '{"model":"cheap-embed-v1","input":["hello world","provider marketplace"]}'`
+      ].join(" ");
+  }
+
+  private buildPrivateConnectorCurlCommand(input: {
+    controlPlaneBaseUrl: string;
+    buyerApiKey: string;
+    connectorId: string;
+  }): string {
+    return [
+      "curl -sS",
+      `-H "Authorization: Bearer ${input.buyerApiKey}"`,
+      '-H "Content-Type: application/json"',
+      `-H "x-compushare-private-connector-id: ${input.connectorId}"`,
+      "-X POST",
+      new URL("/v1/chat/completions", input.controlPlaneBaseUrl).toString(),
+      `-d '${JSON.stringify({
+        model: "openai/gpt-oss-120b-like",
+        messages: [
+          {
+            role: "user",
+            content: "Route this request through the private connector."
+          }
+        ]
+      })}'`
     ].join(" ");
   }
 

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { GetConsumerDashboardOverviewUseCase } from "../../application/dashboard/GetConsumerDashboardOverviewUseCase.js";
+import type { GetPrivateConnectorDashboardUseCase } from "../../application/dashboard/GetPrivateConnectorDashboardUseCase.js";
 import type { GetProviderPricingSimulatorUseCase } from "../../application/dashboard/GetProviderPricingSimulatorUseCase.js";
 import {
   ConsumerDashboardAuthorizationError,
@@ -8,6 +9,11 @@ import {
   ConsumerDashboardOrganizationNotFoundError
 } from "../../application/dashboard/GetConsumerDashboardOverviewUseCase.js";
 import type { GetProviderDashboardOverviewUseCase } from "../../application/dashboard/GetProviderDashboardOverviewUseCase.js";
+import {
+  PrivateConnectorDashboardAuthorizationError,
+  PrivateConnectorDashboardCapabilityRequiredError,
+  PrivateConnectorDashboardOrganizationNotFoundError
+} from "../../application/dashboard/GetPrivateConnectorDashboardUseCase.js";
 import {
   ProviderDashboardAuthorizationError,
   ProviderDashboardCapabilityRequiredError,
@@ -35,6 +41,10 @@ export function registerDashboardRoutes(
   >,
   getProviderDashboardOverviewUseCase: Pick<
     GetProviderDashboardOverviewUseCase,
+    "execute"
+  >,
+  getPrivateConnectorDashboardUseCase?: Pick<
+    GetPrivateConnectorDashboardUseCase,
     "execute"
   >,
   getProviderPricingSimulatorUseCase?: Pick<
@@ -89,6 +99,69 @@ export function registerDashboardRoutes(
         if (error instanceof ConsumerDashboardAuthorizationError) {
           return reply.status(403).send({
             error: "CONSUMER_DASHBOARD_AUTHORIZATION_ERROR",
+            message: error.message
+          });
+        }
+
+        throw error;
+      }
+    }
+  );
+
+  app.get(
+    "/v1/organizations/:organizationId/dashboard/private-connectors",
+    async (request, reply) => {
+      const parsedParams = providerDashboardParamsSchema.safeParse(
+        request.params
+      );
+      const parsedQuery = providerDashboardQuerySchema.safeParse(request.query);
+
+      if (!parsedParams.success) {
+        return reply.status(400).send({
+          error: "VALIDATION_ERROR",
+          message: parsedParams.error.issues[0]?.message ?? "Invalid request."
+        });
+      }
+
+      if (!parsedQuery.success) {
+        return reply.status(400).send({
+          error: "VALIDATION_ERROR",
+          message: parsedQuery.error.issues[0]?.message ?? "Invalid request."
+        });
+      }
+
+      if (getPrivateConnectorDashboardUseCase === undefined) {
+        return reply.status(404).send({
+          error: "PRIVATE_CONNECTOR_DASHBOARD_UNAVAILABLE",
+          message: "Private connector dashboard is not configured."
+        });
+      }
+
+      try {
+        const response = await getPrivateConnectorDashboardUseCase.execute({
+          organizationId: parsedParams.data.organizationId,
+          actorUserId: parsedQuery.data.actorUserId
+        });
+
+        return await reply.status(200).send(response);
+      } catch (error) {
+        if (error instanceof PrivateConnectorDashboardOrganizationNotFoundError) {
+          return reply.status(404).send({
+            error: "PRIVATE_CONNECTOR_DASHBOARD_ORGANIZATION_NOT_FOUND",
+            message: error.message
+          });
+        }
+
+        if (error instanceof PrivateConnectorDashboardCapabilityRequiredError) {
+          return reply.status(403).send({
+            error: "PRIVATE_CONNECTOR_DASHBOARD_CAPABILITY_REQUIRED",
+            message: error.message
+          });
+        }
+
+        if (error instanceof PrivateConnectorDashboardAuthorizationError) {
+          return reply.status(403).send({
+            error: "PRIVATE_CONNECTOR_DASHBOARD_AUTHORIZATION_ERROR",
             message: error.message
           });
         }

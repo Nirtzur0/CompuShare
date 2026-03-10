@@ -7,6 +7,7 @@ import type { GetGatewayBatchUseCase } from "../../application/batch/GetGatewayB
 import type { GetGatewayFileUseCase } from "../../application/batch/GetGatewayFileUseCase.js";
 import type { UploadGatewayFileUseCase } from "../../application/batch/UploadGatewayFileUseCase.js";
 import type { GetConsumerDashboardOverviewUseCase } from "../../application/dashboard/GetConsumerDashboardOverviewUseCase.js";
+import type { GetPrivateConnectorDashboardUseCase } from "../../application/dashboard/GetPrivateConnectorDashboardUseCase.js";
 import type { GetProviderDashboardOverviewUseCase } from "../../application/dashboard/GetProviderDashboardOverviewUseCase.js";
 import type { GetProviderPricingSimulatorUseCase } from "../../application/dashboard/GetProviderPricingSimulatorUseCase.js";
 import type { GetFraudReviewAlertsUseCase } from "../../application/fraud/GetFraudReviewAlertsUseCase.js";
@@ -26,6 +27,10 @@ import type { IssueOrganizationInvitationUseCase } from "../../application/ident
 import type { UpdateOrganizationMemberRoleUseCase } from "../../application/identity/UpdateOrganizationMemberRoleUseCase.js";
 import type { ExecuteChatCompletionUseCase } from "../../application/gateway/ExecuteChatCompletionUseCase.js";
 import type { ExecuteEmbeddingUseCase } from "../../application/gateway/ExecuteEmbeddingUseCase.js";
+import type { CreatePrivateConnectorUseCase } from "../../application/privateConnector/CreatePrivateConnectorUseCase.js";
+import type { ListPrivateConnectorsUseCase } from "../../application/privateConnector/ListPrivateConnectorsUseCase.js";
+import type { RecordPrivateConnectorCheckInUseCase } from "../../application/privateConnector/RecordPrivateConnectorCheckInUseCase.js";
+import type { AdmitPrivateConnectorExecutionGrantUseCase } from "../../application/privateConnector/AdmitPrivateConnectorExecutionGrantUseCase.js";
 import type { ListPlacementCandidatesUseCase } from "../../application/placement/ListPlacementCandidatesUseCase.js";
 import type { ResolveSyncPlacementUseCase } from "../../application/placement/ResolveSyncPlacementUseCase.js";
 import type { AdmitProviderRuntimeWorkloadBundleUseCase } from "../../application/provider/AdmitProviderRuntimeWorkloadBundleUseCase.js";
@@ -46,6 +51,7 @@ import { registerInvitationRoutes } from "./invitationRoutes.js";
 import { registerGatewayRoutes } from "./gatewayRoutes.js";
 import { registerOrganizationRoutes } from "./organizationRoutes.js";
 import { registerPlacementRoutes } from "./placementRoutes.js";
+import { registerPrivateConnectorRoutes } from "./privateConnectorRoutes.js";
 import { registerProviderRoutes } from "./providerRoutes.js";
 import { registerRiskRoutes } from "./riskRoutes.js";
 import { registerStripeWebhookRoutes } from "./stripeWebhookRoutes.js";
@@ -106,6 +112,10 @@ export function buildApp(dependencies: {
     GetProviderDashboardOverviewUseCase,
     "execute"
   >;
+  getPrivateConnectorDashboardUseCase?: Pick<
+    GetPrivateConnectorDashboardUseCase,
+    "execute"
+  >;
   getProviderPricingSimulatorUseCase?: Pick<
     GetProviderPricingSimulatorUseCase,
     "execute"
@@ -113,6 +123,16 @@ export function buildApp(dependencies: {
   getFraudReviewAlertsUseCase?: Pick<GetFraudReviewAlertsUseCase, "execute">;
   executeChatCompletionUseCase: Pick<ExecuteChatCompletionUseCase, "execute">;
   executeEmbeddingUseCase?: Pick<ExecuteEmbeddingUseCase, "execute">;
+  createPrivateConnectorUseCase?: Pick<CreatePrivateConnectorUseCase, "execute">;
+  listPrivateConnectorsUseCase?: Pick<ListPrivateConnectorsUseCase, "execute">;
+  recordPrivateConnectorCheckInUseCase?: Pick<
+    RecordPrivateConnectorCheckInUseCase,
+    "execute"
+  >;
+  admitPrivateConnectorExecutionGrantUseCase?: Pick<
+    AdmitPrivateConnectorExecutionGrantUseCase,
+    "execute"
+  >;
   uploadGatewayFileUseCase?: Pick<UploadGatewayFileUseCase, "execute">;
   getGatewayFileUseCase?: Pick<GetGatewayFileUseCase, "execute">;
   createGatewayBatchUseCase?: Pick<CreateGatewayBatchUseCase, "execute">;
@@ -197,6 +217,7 @@ export function buildApp(dependencies: {
     app,
     dependencies.getConsumerDashboardOverviewUseCase,
     dependencies.getProviderDashboardOverviewUseCase,
+    dependencies.getPrivateConnectorDashboardUseCase,
     dependencies.getProviderPricingSimulatorUseCase
   );
   if (dependencies.getFraudReviewAlertsUseCase !== undefined) {
@@ -213,6 +234,21 @@ export function buildApp(dependencies: {
     dependencies.executeChatCompletionUseCase as ExecuteChatCompletionUseCase,
     dependencies.executeEmbeddingUseCase
   );
+  if (
+    dependencies.createPrivateConnectorUseCase !== undefined &&
+    dependencies.listPrivateConnectorsUseCase !== undefined &&
+    dependencies.recordPrivateConnectorCheckInUseCase !== undefined &&
+    dependencies.admitPrivateConnectorExecutionGrantUseCase !== undefined
+  ) {
+    registerPrivateConnectorRoutes(
+      app,
+      dependencies.authenticateOrganizationApiKeyUseCase,
+      dependencies.createPrivateConnectorUseCase,
+      dependencies.listPrivateConnectorsUseCase,
+      dependencies.recordPrivateConnectorCheckInUseCase,
+      dependencies.admitPrivateConnectorExecutionGrantUseCase
+    );
+  }
   if (
     dependencies.uploadGatewayFileUseCase !== undefined &&
     dependencies.getGatewayFileUseCase !== undefined

@@ -6,7 +6,8 @@ import {
 } from "../../application/gateway/ExecuteEmbeddingUseCase.js";
 import {
   ApprovedChatModelNotFoundError,
-  GatewayAuthorizationHeaderError
+  GatewayAuthorizationHeaderError,
+  PrivateConnectorRoutingUnavailableError
 } from "../../application/gateway/ExecuteChatCompletionUseCase.js";
 import type { ExecuteChatCompletionUseCase } from "../../application/gateway/ExecuteChatCompletionUseCase.js";
 import {
@@ -21,6 +22,11 @@ import {
   SyncPlacementBuyerCapabilityRequiredError,
   SyncPlacementOrganizationNotFoundError
 } from "../../application/placement/ResolveSyncPlacementUseCase.js";
+import {
+  PrivateConnectorModelAliasNotFoundError,
+  PrivateConnectorNotReadyError
+} from "../../application/privateConnector/ResolvePrivateConnectorExecutionUseCase.js";
+import { PrivateConnectorNotFoundError } from "../../application/privateConnector/RecordPrivateConnectorCheckInUseCase.js";
 
 const chatCompletionRequestSchema = z.looseObject({
   model: z.string().min(3).max(120),
@@ -37,6 +43,8 @@ const chatCompletionRequestSchema = z.looseObject({
   temperature: z.number().min(0).max(2).optional(),
   top_p: z.number().positive().max(1).optional()
 });
+
+const privateConnectorIdHeaderSchema = z.uuid().optional();
 
 const embeddingRequestSchema = z.looseObject({
   model: z.string().min(3).max(120),
@@ -55,6 +63,9 @@ export function registerGatewayRoutes(
   app.post("/v1/chat/completions", async (request, reply) => {
     const parsedBody = chatCompletionRequestSchema.safeParse(request.body);
     const authorizationHeader = request.headers.authorization;
+    const parsedPrivateConnectorId = privateConnectorIdHeaderSchema.safeParse(
+      request.headers["x-compushare-private-connector-id"]
+    );
 
     if (!parsedBody.success) {
       return reply.status(400).send({
@@ -70,10 +81,20 @@ export function registerGatewayRoutes(
       });
     }
 
+    if (!parsedPrivateConnectorId.success) {
+      return reply.status(400).send({
+        error: "VALIDATION_ERROR",
+        message:
+          parsedPrivateConnectorId.error.issues[0]?.message ??
+          "Invalid request."
+      });
+    }
+
     try {
       const response = await executeChatCompletionUseCase.execute({
         authorizationHeader,
-        request: parsedBody.data
+        request: parsedBody.data,
+        privateConnectorId: parsedPrivateConnectorId.data
       });
 
       return await reply.status(200).send(response);
@@ -102,6 +123,34 @@ export function registerGatewayRoutes(
       if (error instanceof ApprovedChatModelNotFoundError) {
         return reply.status(404).send({
           error: "APPROVED_CHAT_MODEL_NOT_FOUND",
+          message: error.message
+        });
+      }
+
+      if (error instanceof PrivateConnectorRoutingUnavailableError) {
+        return reply.status(404).send({
+          error: "PRIVATE_CONNECTOR_ROUTING_UNAVAILABLE",
+          message: error.message
+        });
+      }
+
+      if (error instanceof PrivateConnectorNotFoundError) {
+        return reply.status(404).send({
+          error: "PRIVATE_CONNECTOR_NOT_FOUND",
+          message: error.message
+        });
+      }
+
+      if (error instanceof PrivateConnectorModelAliasNotFoundError) {
+        return reply.status(404).send({
+          error: "PRIVATE_CONNECTOR_MODEL_ALIAS_NOT_FOUND",
+          message: error.message
+        });
+      }
+
+      if (error instanceof PrivateConnectorNotReadyError) {
+        return reply.status(409).send({
+          error: "PRIVATE_CONNECTOR_NOT_READY",
           message: error.message
         });
       }

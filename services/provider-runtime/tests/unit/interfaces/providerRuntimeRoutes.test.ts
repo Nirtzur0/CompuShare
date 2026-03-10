@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import {
+  PrivateConnectorControlPlaneRejectedError,
+  PrivateConnectorControlPlaneRequestError,
+  PrivateConnectorControlPlaneResponseError,
+} from "../../../src/application/runtime/ports/PrivateConnectorControlPlaneClient.js";
+import {
+  PrivateConnectorUpstreamResponseError,
+  PrivateConnectorUpstreamRequestError,
+  type ServePrivateConnectorChatCompletionUseCase,
+} from "../../../src/application/runtime/ServePrivateConnectorChatCompletionUseCase.js";
+import {
   ProviderRuntimeAdmissionRejectedError,
   ProviderRuntimeAdmissionRequestError,
   ProviderRuntimeAdmissionResponseError,
@@ -10,18 +20,33 @@ import type { ServeMockEmbeddingUseCase } from "../../../src/application/runtime
 import { buildApp } from "../../../src/interfaces/http/buildApp.js";
 
 function createApp(
-  execute: Pick<ServeMockChatCompletionUseCase, "execute">["execute"],
+  execute?: Pick<ServeMockChatCompletionUseCase, "execute">["execute"],
   executeEmbedding?: Pick<ServeMockEmbeddingUseCase, "execute">["execute"],
+  executePrivateConnector?: Pick<
+    ServePrivateConnectorChatCompletionUseCase,
+    "execute"
+  >["execute"],
 ): FastifyInstance {
   return buildApp({
-    serveMockChatCompletionUseCase: {
-      execute,
-    },
+    ...(execute === undefined
+      ? {}
+      : {
+          serveMockChatCompletionUseCase: {
+            execute,
+          },
+        }),
     ...(executeEmbedding === undefined
       ? {}
       : {
           serveMockEmbeddingUseCase: {
             execute: executeEmbedding,
+          },
+        }),
+    ...(executePrivateConnector === undefined
+      ? {}
+      : {
+          servePrivateConnectorChatCompletionUseCase: {
+            execute: executePrivateConnector,
           },
         }),
   });
@@ -46,6 +71,24 @@ function encodeBundleHeader(): string {
       customerOrganizationId: "032b2d20-90a3-4e47-8031-d3f8fc9fcdb3",
       sensitivityClass: "standard_business",
       createdAt: "2026-03-16T10:00:00.000Z",
+    }),
+    "utf8",
+  ).toString("base64url");
+}
+
+function encodePrivateGrantHeader(): string {
+  return Buffer.from(
+    JSON.stringify({
+      grantId: "2fd0c70d-4a01-44fc-92ee-6e68c4fef34e",
+      organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
+      connectorId: "05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      environment: "development",
+      requestKind: "chat.completions",
+      requestModelAlias: "openai/gpt-oss-120b-like",
+      upstreamModelId: "gpt-oss-120b-instruct",
+      maxTokens: 4096,
+      issuedAt: "2026-03-10T10:00:00.000Z",
+      expiresAt: "2026-03-10T10:04:00.000Z",
     }),
     "utf8",
   ).toString("base64url");
@@ -154,6 +197,405 @@ describe("provider runtime routes", () => {
     });
   });
 
+  it("serves private connector chat completions", async () => {
+    const app = createApp(
+      undefined,
+      undefined,
+      () =>
+        Promise.resolve({
+          id: "chatcmpl_private_123",
+          object: "chat.completion",
+          created: 1_773_624_000,
+          model: "gpt-oss-120b-instruct",
+          choices: [
+            {
+              index: 0,
+              finish_reason: "stop",
+              message: {
+                role: "assistant",
+                content: "Private connector served this request.",
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 5,
+            completion_tokens: 24,
+            total_tokens: 29,
+          },
+        }),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": encodePrivateGrantHeader(),
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      object: "chat.completion",
+      usage: {
+        total_tokens: 29,
+      },
+    });
+  });
+
+  it("rejects missing private connector execution headers", async () => {
+    const app = createApp(undefined, undefined, () =>
+      Promise.reject(new Error("unused")),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "VALIDATION_ERROR",
+    });
+  });
+
+  it("rejects invalid private connector request payloads", async () => {
+    const app = createApp(undefined, undefined, () =>
+      Promise.reject(new Error("unused")),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": encodePrivateGrantHeader(),
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "ok",
+        messages: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "VALIDATION_ERROR",
+    });
+  });
+
+  it("maps private connector admission rejections to 503", async () => {
+    const app = createApp(
+      undefined,
+      undefined,
+      () => Promise.reject(new PrivateConnectorControlPlaneRejectedError("blocked")),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": encodePrivateGrantHeader(),
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      error: "PRIVATE_CONNECTOR_RUNTIME_ADMISSION_REJECTED",
+    });
+  });
+
+  it("maps private connector control-plane request failures to 502", async () => {
+    const app = createApp(
+      undefined,
+      undefined,
+      () =>
+        Promise.reject(new PrivateConnectorControlPlaneRequestError("boom")),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": encodePrivateGrantHeader(),
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toMatchObject({
+      error: "PRIVATE_CONNECTOR_CONTROL_PLANE_REQUEST_ERROR",
+    });
+  });
+
+  it("maps private connector upstream response failures to 502", async () => {
+    const app = createApp(
+      undefined,
+      undefined,
+      () =>
+        Promise.reject(
+          new PrivateConnectorUpstreamResponseError("invalid payload"),
+        ),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": encodePrivateGrantHeader(),
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toMatchObject({
+      error: "PRIVATE_CONNECTOR_UPSTREAM_RESPONSE_ERROR",
+    });
+  });
+
+  it("maps private connector upstream request failures to 502", async () => {
+    const app = createApp(
+      undefined,
+      undefined,
+      () =>
+        Promise.reject(
+          new PrivateConnectorUpstreamRequestError("network unreachable"),
+        ),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": encodePrivateGrantHeader(),
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toMatchObject({
+      error: "PRIVATE_CONNECTOR_UPSTREAM_REQUEST_ERROR",
+    });
+  });
+
+  it("maps private connector control-plane response failures to 502", async () => {
+    const app = createApp(
+      undefined,
+      undefined,
+      () =>
+        Promise.reject(
+          new PrivateConnectorControlPlaneResponseError("invalid payload"),
+        ),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": encodePrivateGrantHeader(),
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toMatchObject({
+      error: "PRIVATE_CONNECTOR_CONTROL_PLANE_RESPONSE_ERROR",
+    });
+  });
+
+  it("surfaces unexpected private connector failures as 500", async () => {
+    const app = createApp(
+      undefined,
+      undefined,
+      () => Promise.reject(new Error("private exploded")),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": encodePrivateGrantHeader(),
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+  });
+
+  it("rejects malformed private execution grant headers", async () => {
+    const app = createApp(undefined, undefined, () =>
+      Promise.reject(new Error("unused")),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": "***",
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "PRIVATE_EXECUTION_GRANT_HEADER_INVALID",
+    });
+  });
+
+  it("rejects private execution grant headers that are valid base64url but not json", async () => {
+    const app = createApp(undefined, undefined, () =>
+      Promise.reject(new Error("unused")),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": Buffer.from(
+          "not-json",
+          "utf8",
+        ).toString("base64url"),
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "PRIVATE_EXECUTION_GRANT_HEADER_INVALID",
+      message: "The private execution grant header must contain valid JSON.",
+    });
+  });
+
+  it("rejects invalid private connector query parameters", async () => {
+    const app = createApp(undefined, undefined, () =>
+      Promise.reject(new Error("unused")),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=not-a-uuid&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": encodePrivateGrantHeader(),
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "VALIDATION_ERROR",
+    });
+  });
+
+  it("rejects private execution grants with invalid schemas", async () => {
+    const app = createApp(undefined, undefined, () =>
+      Promise.reject(new Error("unused")),
+    );
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/private-connectors/chat/completions?organizationId=87057cb0-e0ca-4095-9f25-dd8103408b18&environment=development&connectorId=05e1c781-8e39-40f6-ac01-1329e4d95ef0",
+      headers: {
+        "x-compushare-private-execution-grant": Buffer.from(
+          JSON.stringify({
+            grantId: "2fd0c70d-4a01-44fc-92ee-6e68c4fef34e",
+          }),
+          "utf8",
+        ).toString("base64url"),
+        "x-compushare-private-execution-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-private-execution-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "openai/gpt-oss-120b-like",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "PRIVATE_EXECUTION_GRANT_HEADER_INVALID",
+    });
+  });
+
   it("rejects invalid request payloads", async () => {
     const app = createApp(() => Promise.reject(new Error("unused")));
     apps.push(app);
@@ -177,6 +619,28 @@ describe("provider runtime routes", () => {
     expect(response.json()).toMatchObject({
       error: "VALIDATION_ERROR",
     });
+  });
+
+  it("surfaces unexpected provider chat failures as 500", async () => {
+    const app = createApp(() => Promise.reject(new Error("provider exploded")));
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions?organizationId=b7d0c48d-998d-4c29-b7ff-5697a1384cd4&environment=development&providerNodeId=5b667085-505d-4fba-8872-fcaa85b7c77b",
+      headers: {
+        "x-compushare-workload-bundle": encodeBundleHeader(),
+        "x-compushare-workload-signature":
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "x-compushare-workload-signature-key-id": "local-hmac-v1",
+      },
+      payload: {
+        model: "gpt-oss-120b-instruct",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
   });
 
   it("rejects malformed workload bundle headers", async () => {

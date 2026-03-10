@@ -1410,8 +1410,10 @@ export class PostgresIdentityRepository
           workload_bundle_id,
           occurred_at,
           customer_organization_id,
+          execution_target_type,
           provider_organization_id,
           provider_node_id,
+          private_connector_id,
           environment,
           request_kind,
           approved_model_alias,
@@ -1424,14 +1426,16 @@ export class PostgresIdentityRepository
           total_tokens,
           latency_ms
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       `,
       [
         snapshot.workloadBundleId,
         snapshot.occurredAt,
         snapshot.customerOrganizationId,
+        snapshot.executionTargetType,
         snapshot.providerOrganizationId,
         snapshot.providerNodeId,
+        snapshot.privateConnectorId,
         snapshot.environment,
         snapshot.requestKind,
         snapshot.approvedModelAlias,
@@ -1995,6 +1999,7 @@ export class PostgresIdentityRepository
         SELECT occurred_at, approved_model_alias, total_tokens, latency_ms
         FROM gateway_usage_meter_events
         WHERE provider_organization_id = $1
+          AND execution_target_type = 'marketplace_provider'
           AND occurred_at >= $2
           AND occurred_at < $3
         ORDER BY occurred_at ASC
@@ -2038,6 +2043,7 @@ export class PostgresIdentityRepository
           COALESCE(SUM(total_tokens), 0)::text AS total_tokens
         FROM gateway_usage_meter_events
         WHERE provider_organization_id = $1
+          AND execution_target_type = 'marketplace_provider'
           AND occurred_at >= $2
           AND occurred_at < $3
         GROUP BY provider_node_id
@@ -2430,6 +2436,7 @@ export class PostgresIdentityRepository
         INNER JOIN organizations AS counterparty
           ON counterparty.id = gateway_usage_meter_events.provider_organization_id
         WHERE gateway_usage_meter_events.customer_organization_id = $1
+          AND gateway_usage_meter_events.execution_target_type = 'marketplace_provider'
           AND gateway_usage_meter_events.occurred_at >= $2
           AND gateway_usage_meter_events.occurred_at < $3
         GROUP BY
@@ -2469,6 +2476,7 @@ export class PostgresIdentityRepository
         INNER JOIN organizations AS counterparty
           ON counterparty.id = gateway_usage_meter_events.customer_organization_id
         WHERE gateway_usage_meter_events.provider_organization_id = $1
+          AND gateway_usage_meter_events.execution_target_type = 'marketplace_provider'
           AND gateway_usage_meter_events.occurred_at >= $2
           AND gateway_usage_meter_events.occurred_at < $3
         GROUP BY
