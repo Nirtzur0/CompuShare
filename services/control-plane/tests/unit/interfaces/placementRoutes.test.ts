@@ -147,6 +147,8 @@ describe("placement routes", () => {
               scoreBreakdown: {
                 pricePerformanceScore: 73.57,
                 warmCacheMultiplier: 1.15,
+                disputePenaltyMultiplier: 1,
+                lostDisputeCount90d: 0,
                 benchmarkThroughputTokensPerSecond: 742.5,
                 priceFloorUsdPerHour: 5.25
               },
@@ -734,6 +736,8 @@ describe("placement routes", () => {
             scoreBreakdown: {
               pricePerformanceScore: 73.57,
               warmCacheMultiplier: 1.15,
+              disputePenaltyMultiplier: 1,
+              lostDisputeCount90d: 0,
               benchmarkThroughputTokensPerSecond: 742.5,
               priceFloorUsdPerHour: 5.25
             },

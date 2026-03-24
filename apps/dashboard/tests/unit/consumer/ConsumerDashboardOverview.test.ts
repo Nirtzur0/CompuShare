@@ -33,6 +33,17 @@ describe("ConsumerDashboardOverview", () => {
           totalTokens: 2048,
         },
       ],
+      gatewayQuotaStatus: {
+        environment: "development",
+        fixedDayStartedAt: "2026-03-08T00:00:00.000Z",
+        fixedDayResetsAt: "2026-03-09T00:00:00.000Z",
+        fixedDayTokenLimit: 2000000,
+        fixedDayUsedTokens: 2048,
+        fixedDayRemainingTokens: 1997952,
+        syncRequestsPerMinutePerApiKey: 60,
+        maxBatchItemsPerJob: 500,
+        maxActiveBatchesPerOrganizationEnvironment: 5,
+      },
     });
 
     expect(overview.title).toContain("org-123");
@@ -62,5 +73,9 @@ describe("ConsumerDashboardOverview", () => {
         modelAlias: "openai/gpt-oss-120b-like",
       }),
     ]);
+    expect(overview.gatewayQuotaStatus).toMatchObject({
+      environment: "development",
+      fixedDayRemainingTokens: 1997952,
+    });
   });
 });

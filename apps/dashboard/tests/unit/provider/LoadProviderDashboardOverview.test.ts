@@ -8,6 +8,9 @@ describe("LoadProviderDashboardOverview", () => {
       organizationId: "org-123",
       actorRole: "finance",
       activeNodeCount: 1,
+      activeDisputeCount: 0,
+      activeDisputeHoldUsd: "0.00",
+      recentLostDisputeCount90d: 0,
       healthSummary: {
         healthy: 1,
         degraded: 0,
@@ -23,7 +26,7 @@ describe("LoadProviderDashboardOverview", () => {
         usageBalanceUsd: "0.00",
         spendCreditsUsd: "0.00",
         pendingEarningsUsd: "2.00",
-        withdrawableCashUsd: "8.00",
+        withdrawableCashUsd: "8.00"
       },
       earningsTrend: [],
       estimatedUtilizationTrend: [],

@@ -20,6 +20,17 @@ describe("LoadConsumerDashboardOverview", () => {
       },
       usageTrend: [],
       latencyByModel: [],
+      gatewayQuotaStatus: {
+        environment: "development",
+        fixedDayStartedAt: "2026-03-08T00:00:00.000Z",
+        fixedDayResetsAt: "2026-03-09T00:00:00.000Z",
+        fixedDayTokenLimit: 2000000,
+        fixedDayUsedTokens: 0,
+        fixedDayRemainingTokens: 2000000,
+        syncRequestsPerMinutePerApiKey: 60,
+        maxBatchItemsPerJob: 500,
+        maxActiveBatchesPerOrganizationEnvironment: 5,
+      },
     });
     const loader = new LoadConsumerDashboardOverview({
       getConsumerDashboardOverview: () => Promise.resolve(expectedOverview),
@@ -29,6 +40,7 @@ describe("LoadConsumerDashboardOverview", () => {
       loader.execute({
         organizationId: "org-123",
         actorUserId: "user-123",
+        environment: "development",
       }),
     ).resolves.toBe(expectedOverview);
   });

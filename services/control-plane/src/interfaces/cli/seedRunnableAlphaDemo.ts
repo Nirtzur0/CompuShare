@@ -15,8 +15,7 @@ import { EnrollProviderNodeUseCase } from "../../application/provider/EnrollProv
 import { ReplaceProviderNodeRoutingStateUseCase } from "../../application/provider/ReplaceProviderNodeRoutingStateUseCase.js";
 import { RecordProviderBenchmarkUseCase } from "../../application/provider/RecordProviderBenchmarkUseCase.js";
 import { UpsertProviderNodeRoutingProfileUseCase } from "../../application/provider/UpsertProviderNodeRoutingProfileUseCase.js";
-import { PlacementScoringPolicy } from "../../config/PlacementScoringPolicy.js";
-import { InMemoryApprovedChatModelCatalog } from "../../infrastructure/gateway/InMemoryApprovedChatModelCatalog.js";
+import { loadControlPlaneProductDefaults } from "../../config/ControlPlaneProductDefaults.js";
 import { loadDemoSeedSettings } from "../../config/DemoSeedSettings.js";
 import { StructuredConsoleAuditLog } from "../../infrastructure/observability/StructuredConsoleAuditLog.js";
 import { IdentitySchemaInitializer } from "../../infrastructure/persistence/postgres/IdentitySchemaInitializer.js";
@@ -34,10 +33,16 @@ export function formatSeedRunnableAlphaDemoSummary(
 ): string {
   return [
     "Seeded runnable alpha demo data.",
+    `Operations index: ${result.operationsUrl}`,
+    `Public subprocessors: ${result.publicSubprocessorsUrl}`,
     `Buyer dashboard: ${result.buyer.dashboardUrl}`,
+    `Buyer disputes: ${result.buyer.disputesDashboardUrl}`,
     `Buyer private connectors: ${result.buyer.privateConnectorDashboardUrl}`,
+    `Buyer compliance: ${result.buyer.complianceDashboardUrl}`,
     `Provider dashboard: ${result.provider.dashboardUrl}`,
+    `Provider disputes: ${result.provider.disputesDashboardUrl}`,
     `Provider pricing simulator: ${result.provider.pricingDashboardUrl}`,
+    `DPA export: ${result.buyer.complianceExportCurlCommand}`,
     `Gateway demo: ${result.gatewayDemo.curlCommand}`,
     `Private connector demo: ${result.buyer.privateConnectorCurlCommand}`,
     `Embeddings demo: ${result.embeddingDemo.curlCommand}`,
@@ -61,6 +66,8 @@ export async function seedRunnableAlphaDemoCli(
   controlPlaneBaseUrl: string;
   providerRuntimeBaseUrl: string;
   dashboardBaseUrl: string;
+  operationsUrl: string;
+  publicSubprocessorsUrl: string;
   gatewayDemo: Awaited<
     ReturnType<SeedRunnableAlphaDemo["execute"]>
   >["gatewayDemo"];
@@ -79,11 +86,11 @@ export async function seedRunnableAlphaDemoCli(
     await schemaInitializer.ensureSchema();
 
     const repository = new PostgresIdentityRepository(pool, options.clock);
-    const privateConnectorRepository = new PostgresPrivateConnectorRepository(pool);
+    const privateConnectorRepository = new PostgresPrivateConnectorRepository(
+      pool
+    );
     const auditLog = new StructuredConsoleAuditLog();
-    const approvedChatModelCatalog =
-      InMemoryApprovedChatModelCatalog.createDefault();
-    const placementScoringPolicy = PlacementScoringPolicy.createDefault();
+    const productDefaults = loadControlPlaneProductDefaults();
     let apiKeySequence = 0;
     const useCase = new SeedRunnableAlphaDemo(
       new CreateOrganizationUseCase(repository, auditLog, options.clock),
@@ -101,8 +108,8 @@ export async function seedRunnableAlphaDemoCli(
       new RecordProviderBenchmarkUseCase(repository, auditLog, options.clock),
       new ReplaceProviderNodeRoutingStateUseCase(
         repository,
-        approvedChatModelCatalog,
-        placementScoringPolicy,
+        productDefaults.approvedChatModelCatalog,
+        productDefaults.placementScoringPolicy,
         auditLog,
         options.clock
       ),

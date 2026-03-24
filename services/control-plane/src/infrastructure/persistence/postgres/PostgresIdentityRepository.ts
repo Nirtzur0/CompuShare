@@ -2,8 +2,15 @@ import type { Pool, PoolClient, QueryResult } from "pg";
 import type { ConsumerDashboardRepository } from "../../../application/dashboard/ports/ConsumerDashboardRepository.js";
 import type { ProviderDashboardRepository } from "../../../application/dashboard/ports/ProviderDashboardRepository.js";
 import type { ProviderPricingSimulatorRepository } from "../../../application/dashboard/ports/ProviderPricingSimulatorRepository.js";
+import type { ComplianceRepository } from "../../../application/compliance/ports/ComplianceRepository.js";
+import type { ProviderDisputeRepository } from "../../../application/dispute/ports/ProviderDisputeRepository.js";
 import type { FraudReviewRepository } from "../../../application/fraud/ports/FraudReviewRepository.js";
 import type { GatewayBatchRepository } from "../../../application/batch/ports/GatewayBatchRepository.js";
+import type {
+  GatewayUsageAdmissionRepository,
+  GatewayUsageQuotaSnapshot,
+  ReserveGatewayUsageAdmissionDecision
+} from "../../../application/gateway/ports/GatewayUsageAdmissionRepository.js";
 import type { OrganizationLedgerRepository } from "../../../application/ledger/ports/OrganizationLedgerRepository.js";
 import type { ProviderPayoutRepository } from "../../../application/payout/ports/ProviderPayoutRepository.js";
 import type { OrganizationApiKeyRepository } from "../../../application/identity/ports/OrganizationApiKeyRepository.js";
@@ -25,7 +32,7 @@ import { OrganizationApiKey } from "../../../domain/identity/OrganizationApiKey.
 import type { OrganizationApiKeyId } from "../../../domain/identity/OrganizationApiKeyId.js";
 import { parseOrganizationApiKeyEnvironment } from "../../../domain/identity/OrganizationApiKeyEnvironment.js";
 import type { Organization } from "../../../domain/identity/Organization.js";
-import type { OrganizationId } from "../../../domain/identity/OrganizationId.js";
+import { OrganizationId } from "../../../domain/identity/OrganizationId.js";
 import { OrganizationInvitation } from "../../../domain/identity/OrganizationInvitation.js";
 import { OrganizationMember } from "../../../domain/identity/OrganizationMember.js";
 import type { OrganizationSlug } from "../../../domain/identity/OrganizationSlug.js";
@@ -33,6 +40,7 @@ import { parseOrganizationRole } from "../../../domain/identity/OrganizationRole
 import { User } from "../../../domain/identity/User.js";
 import type { UserId } from "../../../domain/identity/UserId.js";
 import { ConsumerSpendSummary } from "../../../domain/dashboard/ConsumerSpendSummary.js";
+import { ProviderDisputeCase } from "../../../domain/dispute/ProviderDisputeCase.js";
 import { FraudGraphCounterpartyExposure } from "../../../domain/fraud/FraudGraphCounterpartyExposure.js";
 import type { LedgerTransaction } from "../../../domain/ledger/LedgerTransaction.js";
 import { OrganizationWalletSummary } from "../../../domain/ledger/OrganizationWalletSummary.js";
@@ -40,6 +48,7 @@ import { StagedPayoutExport } from "../../../domain/ledger/StagedPayoutExport.js
 import { StagedPayoutExportEntry } from "../../../domain/ledger/StagedPayoutExportEntry.js";
 import { UsdAmount } from "../../../domain/ledger/UsdAmount.js";
 import type { GatewayUsageMeterEvent } from "../../../domain/metering/GatewayUsageMeterEvent.js";
+import { GatewayUsageAdmission } from "../../../domain/gateway/GatewayUsageAdmission.js";
 import { GatewayBatchJob } from "../../../domain/batch/GatewayBatchJob.js";
 import { GatewayBatchJobItem } from "../../../domain/batch/GatewayBatchJobItem.js";
 import { GatewayFile } from "../../../domain/batch/GatewayFile.js";
@@ -56,6 +65,7 @@ import {
   type ProviderBenchmarkReportSnapshot
 } from "../../../domain/provider/ProviderBenchmarkReport.js";
 import { ProviderInventorySummary } from "../../../domain/provider/ProviderInventorySummary.js";
+import { ProviderSubprocessor } from "../../../domain/compliance/ProviderSubprocessor.js";
 import type { ProviderNodeAttestationSnapshot } from "../../../domain/provider/ProviderNodeAttestation.js";
 import { ProviderNodeAttestationChallenge } from "../../../domain/provider/ProviderNodeAttestationChallenge.js";
 import type { ProviderNodeAttestationRecord } from "../../../domain/provider/ProviderNodeAttestationRecord.js";
@@ -198,6 +208,8 @@ interface PlacementDecisionLogRow {
   selection_score: number | null;
   price_performance_score: number | null;
   warm_cache_matched: boolean | null;
+  dispute_penalty_multiplier: number | null;
+  lost_dispute_count_90d: number | null;
   rejection_reason: string | null;
   created_at: Date;
 }
@@ -327,6 +339,17 @@ interface ProviderOrganizationRow {
   id: string;
 }
 
+interface ProviderSubprocessorRow {
+  organization_id: string;
+  organization_name: string;
+  organization_slug: string;
+  environment: string;
+  regions: string[] | null;
+  trust_tier_rank: number | null;
+  has_active_attestation: boolean;
+  routable_node_count: number;
+}
+
 interface ProviderPayoutAccountRow {
   organization_id: string;
   stripe_account_id: string;
@@ -363,13 +386,62 @@ interface ProviderPayoutDisbursementRow {
   canceled_at: Date | null;
 }
 
+interface ProviderDisputeCaseRow {
+  id: string;
+  buyer_organization_id: string;
+  created_by_user_id: string | null;
+  dispute_type: string;
+  source: string;
+  status: string;
+  payment_reference: string | null;
+  job_reference: string | null;
+  disputed_amount_cents: string;
+  reason_code: string;
+  summary: string;
+  stripe_dispute_id: string | null;
+  stripe_charge_id: string | null;
+  stripe_reason: string | null;
+  stripe_status: string | null;
+  created_at: Date;
+  updated_at: Date;
+  resolved_at: Date | null;
+}
+
+interface ProviderDisputeEvidenceEntryRow {
+  provider_dispute_id: string;
+  ordinal: number;
+  label: string;
+  value: string;
+}
+
+interface ProviderDisputeAllocationRow {
+  provider_dispute_id: string;
+  ordinal: number;
+  provider_organization_id: string;
+  amount_cents: string;
+}
+
+interface ProviderDisputeSummaryRow {
+  active_dispute_count: string;
+  active_dispute_hold_cents: string;
+  recent_lost_dispute_count: string;
+}
+
+interface ProviderLostDisputeCountRow {
+  provider_organization_id: string;
+  lost_dispute_count: string;
+}
+
 export class PostgresIdentityRepository
   implements
+    ComplianceRepository,
+    ProviderDisputeRepository,
     ConsumerDashboardRepository,
     ProviderDashboardRepository,
     ProviderPricingSimulatorRepository,
     FraudReviewRepository,
     GatewayBatchRepository,
+    GatewayUsageAdmissionRepository,
     GatewayUsageMeterEventRepository,
     OrganizationLedgerRepository,
     ProviderPayoutRepository,
@@ -1031,6 +1103,373 @@ export class PostgresIdentityRepository
     });
   }
 
+  public async hasCustomerChargeReference(input: {
+    buyerOrganizationId: OrganizationId;
+    paymentReference: string;
+  }): Promise<boolean> {
+    const result = await this.pool.query<{ found: number }>(
+      `
+        SELECT 1 AS found
+        FROM ledger_transactions
+        WHERE organization_id = $1
+          AND transaction_type = 'customer_charge'
+          AND reference = $2
+        LIMIT 1
+      `,
+      [input.buyerOrganizationId.value, input.paymentReference]
+    );
+
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  public async findBuyerOrganizationIdByPaymentReference(
+    paymentReference: string
+  ): Promise<OrganizationId | null> {
+    const result = await this.pool.query<{ organization_id: string }>(
+      `
+        SELECT DISTINCT organization_id
+        FROM ledger_transactions
+        WHERE transaction_type = 'customer_charge'
+          AND reference = $1
+        ORDER BY organization_id ASC
+        LIMIT 2
+      `,
+      [paymentReference]
+    );
+
+    if ((result.rowCount ?? 0) !== 1) {
+      return null;
+    }
+
+    const row = result.rows[0];
+
+    return row === undefined ? null : OrganizationId.create(row.organization_id);
+  }
+
+  public async hasProviderSettlementReference(input: {
+    buyerOrganizationId: OrganizationId;
+    providerOrganizationId: OrganizationId;
+    jobReference: string;
+  }): Promise<boolean> {
+    const result = await this.pool.query<{ found: number }>(
+      `
+        SELECT 1 AS found
+        FROM ledger_transactions
+        INNER JOIN ledger_postings AS provider_posting
+          ON provider_posting.transaction_id = ledger_transactions.id
+         AND provider_posting.organization_id = $2
+         AND provider_posting.account_code = 'provider_payable'
+        WHERE ledger_transactions.organization_id = $1
+          AND ledger_transactions.transaction_type = 'job_settlement'
+          AND ledger_transactions.reference = $3
+        LIMIT 1
+      `,
+      [
+        input.buyerOrganizationId.value,
+        input.providerOrganizationId.value,
+        input.jobReference
+      ]
+    );
+
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  public async createProviderDisputeCase(
+    dispute: ProviderDisputeCase
+  ): Promise<void> {
+    await this.persistProviderDisputeCase(dispute);
+  }
+
+  public async updateProviderDisputeCase(
+    dispute: ProviderDisputeCase
+  ): Promise<void> {
+    await this.persistProviderDisputeCase(dispute, true);
+  }
+
+  public async findProviderDisputeCaseById(
+    disputeId: string
+  ): Promise<ProviderDisputeCase | null> {
+    const result = await this.pool.query<ProviderDisputeCaseRow>(
+      `
+        SELECT
+          id::text AS id,
+          buyer_organization_id::text AS buyer_organization_id,
+          created_by_user_id::text AS created_by_user_id,
+          dispute_type,
+          source,
+          status,
+          payment_reference,
+          job_reference,
+          disputed_amount_cents::text AS disputed_amount_cents,
+          reason_code,
+          summary,
+          stripe_dispute_id,
+          stripe_charge_id,
+          stripe_reason,
+          stripe_status,
+          created_at,
+          updated_at,
+          resolved_at
+        FROM provider_dispute_cases
+        WHERE id = $1
+      `,
+      [disputeId]
+    );
+
+    return (await this.hydrateProviderDisputeCases(result.rows))[0] ?? null;
+  }
+
+  public async findProviderDisputeCaseByStripeDisputeId(
+    stripeDisputeId: string
+  ): Promise<ProviderDisputeCase | null> {
+    const result = await this.pool.query<ProviderDisputeCaseRow>(
+      `
+        SELECT
+          id::text AS id,
+          buyer_organization_id::text AS buyer_organization_id,
+          created_by_user_id::text AS created_by_user_id,
+          dispute_type,
+          source,
+          status,
+          payment_reference,
+          job_reference,
+          disputed_amount_cents::text AS disputed_amount_cents,
+          reason_code,
+          summary,
+          stripe_dispute_id,
+          stripe_charge_id,
+          stripe_reason,
+          stripe_status,
+          created_at,
+          updated_at,
+          resolved_at
+        FROM provider_dispute_cases
+        WHERE stripe_dispute_id = $1
+      `,
+      [stripeDisputeId]
+    );
+
+    return (await this.hydrateProviderDisputeCases(result.rows))[0] ?? null;
+  }
+
+  public async findChargebackDisputeByPaymentReference(input: {
+    buyerOrganizationId: OrganizationId;
+    paymentReference: string;
+  }): Promise<ProviderDisputeCase | null> {
+    const result = await this.pool.query<ProviderDisputeCaseRow>(
+      `
+        SELECT
+          id::text AS id,
+          buyer_organization_id::text AS buyer_organization_id,
+          created_by_user_id::text AS created_by_user_id,
+          dispute_type,
+          source,
+          status,
+          payment_reference,
+          job_reference,
+          disputed_amount_cents::text AS disputed_amount_cents,
+          reason_code,
+          summary,
+          stripe_dispute_id,
+          stripe_charge_id,
+          stripe_reason,
+          stripe_status,
+          created_at,
+          updated_at,
+          resolved_at
+        FROM provider_dispute_cases
+        WHERE buyer_organization_id = $1
+          AND dispute_type = 'chargeback'
+          AND payment_reference = $2
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+      `,
+      [input.buyerOrganizationId.value, input.paymentReference]
+    );
+
+    return (await this.hydrateProviderDisputeCases(result.rows))[0] ?? null;
+  }
+
+  public async listBuyerOrganizationDisputes(input: {
+    buyerOrganizationId: OrganizationId;
+    status?: "open" | "under_review" | "won" | "lost" | "recovered" | "canceled";
+  }): Promise<readonly ProviderDisputeCase[]> {
+    const result = await this.pool.query<ProviderDisputeCaseRow>(
+      `
+        SELECT
+          id::text AS id,
+          buyer_organization_id::text AS buyer_organization_id,
+          created_by_user_id::text AS created_by_user_id,
+          dispute_type,
+          source,
+          status,
+          payment_reference,
+          job_reference,
+          disputed_amount_cents::text AS disputed_amount_cents,
+          reason_code,
+          summary,
+          stripe_dispute_id,
+          stripe_charge_id,
+          stripe_reason,
+          stripe_status,
+          created_at,
+          updated_at,
+          resolved_at
+        FROM provider_dispute_cases
+        WHERE buyer_organization_id = $1
+          AND ($2::text IS NULL OR status = $2)
+        ORDER BY updated_at DESC, created_at DESC, id DESC
+      `,
+      [input.buyerOrganizationId.value, input.status ?? null]
+    );
+
+    return this.hydrateProviderDisputeCases(result.rows);
+  }
+
+  public async listProviderOrganizationDisputes(
+    providerOrganizationId: OrganizationId
+  ): Promise<readonly ProviderDisputeCase[]> {
+    const result = await this.pool.query<ProviderDisputeCaseRow>(
+      `
+        SELECT DISTINCT
+          c.id::text AS id,
+          c.buyer_organization_id::text AS buyer_organization_id,
+          c.created_by_user_id::text AS created_by_user_id,
+          c.dispute_type,
+          c.source,
+          c.status,
+          c.payment_reference,
+          c.job_reference,
+          c.disputed_amount_cents::text AS disputed_amount_cents,
+          c.reason_code,
+          c.summary,
+          c.stripe_dispute_id,
+          c.stripe_charge_id,
+          c.stripe_reason,
+          c.stripe_status,
+          c.created_at,
+          c.updated_at,
+          c.resolved_at
+        FROM provider_dispute_cases AS c
+        INNER JOIN provider_dispute_allocations AS a
+          ON a.provider_dispute_id = c.id
+        WHERE a.provider_organization_id = $1
+        ORDER BY c.updated_at DESC, c.created_at DESC, c.id DESC
+      `,
+      [providerOrganizationId.value]
+    );
+
+    return this.hydrateProviderDisputeCases(result.rows);
+  }
+
+  public async getProviderDisputeSummary(input: {
+    providerOrganizationId: OrganizationId;
+    lostSinceInclusive: Date;
+  }): Promise<{
+    activeDisputeCount: number;
+    activeDisputeHold: UsdAmount;
+    recentLostDisputeCount: number;
+  }> {
+    const result = await this.pool.query<ProviderDisputeSummaryRow>(
+      `
+        SELECT
+          COALESCE(
+            COUNT(DISTINCT CASE
+              WHEN c.status IN ('open', 'under_review', 'lost') THEN c.id
+              ELSE NULL
+            END),
+            0
+          )::text AS active_dispute_count,
+          COALESCE(
+            SUM(CASE
+              WHEN c.status IN ('open', 'under_review', 'lost') THEN a.amount_cents
+              ELSE 0
+            END),
+            0
+          )::text AS active_dispute_hold_cents,
+          COALESCE(
+            COUNT(DISTINCT CASE
+              WHEN c.status = 'lost' AND c.updated_at >= $2 THEN c.id
+              ELSE NULL
+            END),
+            0
+          )::text AS recent_lost_dispute_count
+        FROM provider_dispute_allocations AS a
+        INNER JOIN provider_dispute_cases AS c
+          ON c.id = a.provider_dispute_id
+        WHERE a.provider_organization_id = $1
+      `,
+      [input.providerOrganizationId.value, input.lostSinceInclusive]
+    );
+
+    return {
+      activeDisputeCount: Number.parseInt(
+        result.rows[0]?.active_dispute_count ?? "0",
+        10
+      ),
+      activeDisputeHold: UsdAmount.createFromCents(
+        Number.parseInt(result.rows[0]?.active_dispute_hold_cents ?? "0", 10)
+      ),
+      recentLostDisputeCount: Number.parseInt(
+        result.rows[0]?.recent_lost_dispute_count ?? "0",
+        10
+      )
+    };
+  }
+
+  public async getActiveProviderDisputeHold(
+    providerOrganizationId: OrganizationId
+  ): Promise<UsdAmount> {
+    const result = await this.pool.query<{ active_dispute_hold_cents: string }>(
+      `
+        SELECT
+          COALESCE(
+            SUM(a.amount_cents),
+            0
+          )::text AS active_dispute_hold_cents
+        FROM provider_dispute_allocations AS a
+        INNER JOIN provider_dispute_cases AS c
+          ON c.id = a.provider_dispute_id
+        WHERE a.provider_organization_id = $1
+          AND c.status IN ('open', 'under_review', 'lost')
+      `,
+      [providerOrganizationId.value]
+    );
+
+    return UsdAmount.createFromCents(
+      Number.parseInt(result.rows[0]?.active_dispute_hold_cents ?? "0", 10)
+    );
+  }
+
+  public async listRecentLostDisputeCountsByProviderOrganization(input: {
+    lostSinceInclusive: Date;
+  }): Promise<
+    readonly {
+      providerOrganizationId: string;
+      lostDisputeCount: number;
+    }[]
+  > {
+    const result = await this.pool.query<ProviderLostDisputeCountRow>(
+      `
+        SELECT
+          a.provider_organization_id,
+          COUNT(DISTINCT c.id)::text AS lost_dispute_count
+        FROM provider_dispute_allocations AS a
+        INNER JOIN provider_dispute_cases AS c
+          ON c.id = a.provider_dispute_id
+        WHERE c.status = 'lost'
+          AND c.updated_at >= $1
+        GROUP BY a.provider_organization_id
+      `,
+      [input.lostSinceInclusive]
+    );
+
+    return result.rows.map((row) => ({
+      providerOrganizationId: row.provider_organization_id,
+      lostDisputeCount: Number.parseInt(row.lost_dispute_count, 10)
+    }));
+  }
+
   public async listProviderOrganizationIds(input: {
     providerOrganizationId?: OrganizationId;
   }): Promise<readonly string[]> {
@@ -1046,6 +1485,94 @@ export class PostgresIdentityRepository
     );
 
     return result.rows.map((row) => row.id);
+  }
+
+  public async listRoutableProviderSubprocessors(input: {
+    environment: "development" | "staging" | "production";
+    now: Date;
+  }): Promise<readonly ProviderSubprocessor[]> {
+    const result = await this.pool.query<ProviderSubprocessorRow>(
+      `
+        WITH routable_provider_nodes AS (
+          SELECT DISTINCT r.provider_node_id
+          FROM provider_node_routing_profiles AS r
+          INNER JOIN provider_node_benchmarks AS b
+            ON b.provider_node_id = r.provider_node_id
+          WHERE r.endpoint_url IS NOT NULL
+            AND r.price_floor_usd_per_hour IS NOT NULL
+        ),
+        attested_provider_nodes AS (
+          SELECT DISTINCT a.provider_node_id
+          FROM provider_node_attestations AS a
+          WHERE a.verified = TRUE
+            AND a.expires_at > $2
+        ),
+        provider_node_compliance AS (
+          SELECT
+            n.organization_id,
+            n.id AS provider_node_id,
+            n.region,
+            CASE n.trust_tier
+              WHEN 't2_attested' THEN 2
+              WHEN 't1_vetted' THEN 1
+              ELSE 0
+            END AS trust_tier_rank,
+            attested.provider_node_id IS NOT NULL AS has_active_attestation,
+            routable.provider_node_id IS NOT NULL AS is_routable
+          FROM provider_nodes AS n
+          LEFT JOIN attested_provider_nodes AS attested
+            ON attested.provider_node_id = n.id
+          LEFT JOIN routable_provider_nodes AS routable
+            ON routable.provider_node_id = n.id
+        ),
+        provider_organization_compliance AS (
+          SELECT
+            o.id AS organization_id,
+            o.name AS organization_name,
+            o.slug AS organization_slug,
+            k.environment,
+            ARRAY_AGG(DISTINCT c.region ORDER BY c.region) AS regions,
+            MAX(c.trust_tier_rank) AS trust_tier_rank,
+            BOOL_OR(c.has_active_attestation) AS has_active_attestation,
+            SUM(CASE WHEN c.is_routable THEN 1 ELSE 0 END)::int AS routable_node_count
+          FROM organizations AS o
+          INNER JOIN organization_api_keys AS k
+            ON k.organization_id = o.id
+           AND k.environment = $1
+          INNER JOIN provider_node_compliance AS c
+            ON c.organization_id = o.id
+          WHERE 'provider' = ANY(o.account_capabilities)
+          GROUP BY o.id, o.name, o.slug, k.environment
+        )
+        SELECT
+          organization_id,
+          organization_name,
+          organization_slug,
+          environment,
+          regions,
+          trust_tier_rank,
+          has_active_attestation,
+          routable_node_count
+        FROM provider_organization_compliance
+        WHERE routable_node_count > 0
+        ORDER BY organization_name ASC, organization_id ASC
+      `,
+      [input.environment, input.now]
+    );
+
+    return result.rows.map((row) =>
+      ProviderSubprocessor.create({
+        organizationId: row.organization_id,
+        organizationName: row.organization_name,
+        organizationSlug: row.organization_slug,
+        environment: parseOrganizationApiKeyEnvironment(row.environment),
+        regions: row.regions ?? [],
+        trustTierCeiling: this.mapProviderTrustTierRank(row.trust_tier_rank),
+        hasActiveAttestation: row.has_active_attestation,
+        routingAvailable: row.routable_node_count > 0,
+        routableNodeCount: row.routable_node_count
+      })
+    );
   }
 
   public async findProviderPayoutAccountByOrganizationId(
@@ -1163,6 +1690,8 @@ export class PostgresIdentityRepository
     organizationId: OrganizationId
   ): Promise<ProviderPayoutAvailability> {
     const wallet = await this.getOrganizationWalletSummary(organizationId);
+    const activeDisputeHold =
+      await this.getActiveProviderDisputeHold(organizationId);
     const reservedResult = await this.pool.query<{
       reserved_cents: string;
       last_payout_at: Date | null;
@@ -1195,7 +1724,9 @@ export class PostgresIdentityRepository
       10
     );
     const eligiblePayoutCents = Math.max(
-      wallet.withdrawableCash.cents - reservedCents,
+      wallet.withdrawableCash.cents -
+        reservedCents -
+        activeDisputeHold.cents,
       0
     );
 
@@ -1207,6 +1738,7 @@ export class PostgresIdentityRepository
         0
       ),
       withdrawableCashCents: wallet.withdrawableCash.cents,
+      activeDisputeHoldCents: activeDisputeHold.cents,
       eligiblePayoutCents,
       lastPayoutAt: reservedResult.rows[0]?.last_payout_at ?? null,
       lastPayoutStatus: reservedResult.rows[0]?.last_payout_status ?? "none"
@@ -1399,6 +1931,34 @@ export class PostgresIdentityRepository
     return (result.rowCount ?? 0) > 0;
   }
 
+  public async recordStripeDisputeWebhookReceipt(input: {
+    eventId: string;
+    eventType: string;
+    receivedAt: Date;
+    payload: Record<string, unknown>;
+  }): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+        INSERT INTO stripe_dispute_webhook_receipts (
+          event_id,
+          event_type,
+          received_at,
+          payload
+        )
+        VALUES ($1, $2, $3, $4::jsonb)
+        ON CONFLICT (event_id) DO NOTHING
+      `,
+      [
+        input.eventId,
+        input.eventType,
+        input.receivedAt.toISOString(),
+        JSON.stringify(input.payload)
+      ]
+    );
+
+    return (result.rowCount ?? 0) > 0;
+  }
+
   public async appendGatewayUsageMeterEvent(
     event: GatewayUsageMeterEvent
   ): Promise<void> {
@@ -1448,6 +2008,272 @@ export class PostgresIdentityRepository
         snapshot.totalTokens,
         snapshot.latencyMs
       ]
+    );
+  }
+
+  public async reserveGatewayUsageAdmission(input: {
+    organizationId: OrganizationId;
+    environment: ReturnType<typeof parseOrganizationApiKeyEnvironment>;
+    apiKeyScopeId: string;
+    requestKind: "chat.completions" | "embeddings";
+    requestSource: "interactive" | "batch_worker";
+    estimatedTotalTokens: number;
+    occurredAt: Date;
+    syncRequestsPerMinutePerApiKey: number;
+    fixedDayTokenQuota: number;
+  }): Promise<ReserveGatewayUsageAdmissionDecision> {
+    const client = await this.pool.connect();
+    const minuteWindowStartedAt = this.startOfUtcMinute(input.occurredAt);
+    const minuteWindowResetsAt = new Date(
+      minuteWindowStartedAt.getTime() + 60_000
+    );
+    const dayWindowStartedAt = this.startOfUtcDay(input.occurredAt);
+    const dayWindowResetsAt = this.startOfNextUtcDay(input.occurredAt);
+
+    try {
+      await client.query("BEGIN");
+
+      let requestRateUsed = 0;
+
+      if (input.requestSource === "interactive") {
+        const requestRateResult = await client.query<{ request_count: string }>(
+          `
+            SELECT COUNT(*)::text AS request_count
+            FROM gateway_usage_admissions
+            WHERE api_key_scope_id = $1
+              AND request_source = 'interactive'
+              AND created_at >= $2
+              AND created_at < $3
+          `,
+          [
+            input.apiKeyScopeId,
+            minuteWindowStartedAt.toISOString(),
+            minuteWindowResetsAt.toISOString()
+          ]
+        );
+        requestRateUsed = Number.parseInt(
+          requestRateResult.rows[0]?.request_count ?? "0",
+          10
+        );
+
+        if (requestRateUsed >= input.syncRequestsPerMinutePerApiKey) {
+          await client.query("ROLLBACK");
+          return {
+            admitted: false,
+            reason: "request_rate_limit",
+            admission: null,
+            requestRate: {
+              limit: input.syncRequestsPerMinutePerApiKey,
+              used: requestRateUsed,
+              remaining: 0,
+              windowStartedAt: minuteWindowStartedAt.toISOString(),
+              windowResetsAt: minuteWindowResetsAt.toISOString()
+            },
+            fixedDayQuota: await this.buildGatewayUsageQuotaSnapshot(
+              client,
+              input.organizationId,
+              input.environment,
+              dayWindowStartedAt,
+              dayWindowResetsAt,
+              input.fixedDayTokenQuota,
+              input.syncRequestsPerMinutePerApiKey,
+              0,
+              0
+            ).then((snapshot) => ({
+              limit: snapshot.fixedDayTokenLimit,
+              used: snapshot.fixedDayUsedTokens,
+              remaining: snapshot.fixedDayRemainingTokens,
+              windowStartedAt: snapshot.fixedDayStartedAt,
+              windowResetsAt: snapshot.fixedDayResetsAt
+            }))
+          };
+        }
+      }
+
+      const currentQuota = await this.buildGatewayUsageQuotaSnapshot(
+        client,
+        input.organizationId,
+        input.environment,
+        dayWindowStartedAt,
+        dayWindowResetsAt,
+        input.fixedDayTokenQuota,
+        input.syncRequestsPerMinutePerApiKey,
+        0,
+        0
+      );
+
+      if (
+        currentQuota.fixedDayUsedTokens + input.estimatedTotalTokens >
+        input.fixedDayTokenQuota
+      ) {
+        await client.query("ROLLBACK");
+        return {
+          admitted: false,
+          reason: "token_quota",
+          admission: null,
+          requestRate:
+            input.requestSource === "interactive"
+              ? {
+                  limit: input.syncRequestsPerMinutePerApiKey,
+                  used: requestRateUsed,
+                  remaining: Math.max(
+                    input.syncRequestsPerMinutePerApiKey - requestRateUsed,
+                    0
+                  ),
+                  windowStartedAt: minuteWindowStartedAt.toISOString(),
+                  windowResetsAt: minuteWindowResetsAt.toISOString()
+                }
+              : null,
+          fixedDayQuota: {
+            limit: currentQuota.fixedDayTokenLimit,
+            used: currentQuota.fixedDayUsedTokens,
+            remaining: currentQuota.fixedDayRemainingTokens,
+            windowStartedAt: currentQuota.fixedDayStartedAt,
+            windowResetsAt: currentQuota.fixedDayResetsAt
+          }
+        };
+      }
+
+      const admission = GatewayUsageAdmission.reserve({
+        organizationId: input.organizationId.value,
+        environment: input.environment,
+        apiKeyScopeId: input.apiKeyScopeId,
+        requestKind: input.requestKind,
+        requestSource: input.requestSource,
+        estimatedTotalTokens: input.estimatedTotalTokens,
+        createdAt: input.occurredAt
+      });
+      const snapshot = admission.toSnapshot();
+
+      await client.query(
+        `
+          INSERT INTO gateway_usage_admissions (
+            id,
+            organization_id,
+            environment,
+            api_key_scope_id,
+            request_kind,
+            request_source,
+            estimated_total_tokens,
+            actual_total_tokens,
+            created_at,
+            settled_at,
+            released_at,
+            release_reason
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        `,
+        [
+          snapshot.id,
+          snapshot.organizationId,
+          snapshot.environment,
+          snapshot.apiKeyScopeId,
+          snapshot.requestKind,
+          snapshot.requestSource,
+          snapshot.estimatedTotalTokens,
+          snapshot.actualTotalTokens,
+          snapshot.createdAt,
+          snapshot.settledAt,
+          snapshot.releasedAt,
+          snapshot.releaseReason
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        admitted: true,
+        reason: null,
+        admission,
+        requestRate:
+          input.requestSource === "interactive"
+            ? {
+                limit: input.syncRequestsPerMinutePerApiKey,
+                used: requestRateUsed + 1,
+                remaining: Math.max(
+                  input.syncRequestsPerMinutePerApiKey - requestRateUsed - 1,
+                  0
+                ),
+                windowStartedAt: minuteWindowStartedAt.toISOString(),
+                windowResetsAt: minuteWindowResetsAt.toISOString()
+              }
+            : null,
+        fixedDayQuota: {
+          limit: input.fixedDayTokenQuota,
+          used: currentQuota.fixedDayUsedTokens + input.estimatedTotalTokens,
+          remaining: Math.max(
+            input.fixedDayTokenQuota -
+              currentQuota.fixedDayUsedTokens -
+              input.estimatedTotalTokens,
+            0
+          ),
+          windowStartedAt: dayWindowStartedAt.toISOString(),
+          windowResetsAt: dayWindowResetsAt.toISOString()
+        }
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async settleGatewayUsageAdmission(
+    admissionId: string,
+    actualTotalTokens: number,
+    settledAt: Date
+  ): Promise<void> {
+    await this.pool.query(
+      `
+        UPDATE gateway_usage_admissions
+        SET
+          actual_total_tokens = $2,
+          settled_at = $3
+        WHERE id = $1
+      `,
+      [admissionId, actualTotalTokens, settledAt.toISOString()]
+    );
+  }
+
+  public async releaseGatewayUsageAdmission(
+    admissionId: string,
+    releasedAt: Date,
+    releaseReason: string
+  ): Promise<void> {
+    await this.pool.query(
+      `
+        UPDATE gateway_usage_admissions
+        SET
+          released_at = $2,
+          release_reason = $3
+        WHERE id = $1
+      `,
+      [admissionId, releasedAt.toISOString(), releaseReason]
+    );
+  }
+
+  public async getGatewayUsageQuotaSnapshot(input: {
+    organizationId: OrganizationId;
+    environment: ReturnType<typeof parseOrganizationApiKeyEnvironment>;
+    asOf: Date;
+    fixedDayTokenLimit: number;
+    syncRequestsPerMinutePerApiKey: number;
+    maxBatchItemsPerJob: number;
+    maxActiveBatchesPerOrganizationEnvironment: number;
+  }): Promise<GatewayUsageQuotaSnapshot> {
+    const dayWindowStartedAt = this.startOfUtcDay(input.asOf);
+    const dayWindowResetsAt = this.startOfNextUtcDay(input.asOf);
+    return this.buildGatewayUsageQuotaSnapshot(
+      this.pool,
+      input.organizationId,
+      input.environment,
+      dayWindowStartedAt,
+      dayWindowResetsAt,
+      input.fixedDayTokenLimit,
+      input.syncRequestsPerMinutePerApiKey,
+      input.maxBatchItemsPerJob,
+      input.maxActiveBatchesPerOrganizationEnvironment
     );
   }
 
@@ -1621,6 +2447,24 @@ export class PostgresIdentityRepository
     } finally {
       client.release();
     }
+  }
+
+  public async countActiveGatewayBatches(input: {
+    organizationId: OrganizationId;
+    environment: ReturnType<typeof parseOrganizationApiKeyEnvironment>;
+  }): Promise<number> {
+    const result = await this.pool.query<{ active_batch_count: string }>(
+      `
+        SELECT COUNT(*)::text AS active_batch_count
+        FROM gateway_batch_jobs
+        WHERE organization_id = $1
+          AND environment = $2
+          AND status IN ('validating', 'in_progress', 'finalizing', 'cancelling')
+      `,
+      [input.organizationId.value, input.environment]
+    );
+
+    return Number.parseInt(result.rows[0]?.active_batch_count ?? "0", 10);
   }
 
   public async findGatewayBatchJobById(
@@ -2963,6 +3807,8 @@ export class PostgresIdentityRepository
           selection_score,
           price_performance_score,
           warm_cache_matched,
+          dispute_penalty_multiplier,
+          lost_dispute_count_90d,
           rejection_reason,
           created_at
         )
@@ -2983,7 +3829,9 @@ export class PostgresIdentityRepository
           $14,
           $15,
           $16,
-          $17
+          $17,
+          $18,
+          $19
         )
       `,
       this.toPlacementDecisionLogParameters(snapshot)
@@ -3528,6 +4376,294 @@ export class PostgresIdentityRepository
     );
   }
 
+  private async persistProviderDisputeCase(
+    dispute: ProviderDisputeCase,
+    updateExisting = false
+  ): Promise<void> {
+    const snapshot = dispute.toSnapshot();
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      if (updateExisting) {
+        await client.query(
+          `
+            UPDATE provider_dispute_cases
+            SET
+              buyer_organization_id = $2,
+              created_by_user_id = $3,
+              dispute_type = $4,
+              source = $5,
+              status = $6,
+              payment_reference = $7,
+              job_reference = $8,
+              disputed_amount_cents = $9,
+              reason_code = $10,
+              summary = $11,
+              stripe_dispute_id = $12,
+              stripe_charge_id = $13,
+              stripe_reason = $14,
+              stripe_status = $15,
+              created_at = $16,
+              updated_at = $17,
+              resolved_at = $18
+            WHERE id = $1
+          `,
+          [
+            snapshot.id,
+            snapshot.buyerOrganizationId,
+            snapshot.createdByUserId,
+            snapshot.disputeType,
+            snapshot.source,
+            snapshot.status,
+            snapshot.paymentReference,
+            snapshot.jobReference,
+            dispute.disputedAmount.cents,
+            snapshot.reasonCode,
+            snapshot.summary,
+            snapshot.stripeDisputeId,
+            snapshot.stripeChargeId,
+            snapshot.stripeReason,
+            snapshot.stripeStatus,
+            new Date(snapshot.createdAt),
+            new Date(snapshot.updatedAt),
+            snapshot.resolvedAt === null ? null : new Date(snapshot.resolvedAt)
+          ]
+        );
+
+        await client.query(
+          `
+            DELETE FROM provider_dispute_evidence_entries
+            WHERE provider_dispute_id = $1
+          `,
+          [snapshot.id]
+        );
+        await client.query(
+          `
+            DELETE FROM provider_dispute_allocations
+            WHERE provider_dispute_id = $1
+          `,
+          [snapshot.id]
+        );
+      } else {
+        await client.query(
+          `
+            INSERT INTO provider_dispute_cases (
+              id,
+              buyer_organization_id,
+              created_by_user_id,
+              dispute_type,
+              source,
+              status,
+              payment_reference,
+              job_reference,
+              disputed_amount_cents,
+              reason_code,
+              summary,
+              stripe_dispute_id,
+              stripe_charge_id,
+              stripe_reason,
+              stripe_status,
+              created_at,
+              updated_at,
+              resolved_at
+            )
+            VALUES (
+              $1,
+              $2,
+              $3,
+              $4,
+              $5,
+              $6,
+              $7,
+              $8,
+              $9,
+              $10,
+              $11,
+              $12,
+              $13,
+              $14,
+              $15,
+              $16,
+              $17,
+              $18
+            )
+          `,
+          [
+            snapshot.id,
+            snapshot.buyerOrganizationId,
+            snapshot.createdByUserId,
+            snapshot.disputeType,
+            snapshot.source,
+            snapshot.status,
+            snapshot.paymentReference,
+            snapshot.jobReference,
+            dispute.disputedAmount.cents,
+            snapshot.reasonCode,
+            snapshot.summary,
+            snapshot.stripeDisputeId,
+            snapshot.stripeChargeId,
+            snapshot.stripeReason,
+            snapshot.stripeStatus,
+            new Date(snapshot.createdAt),
+            new Date(snapshot.updatedAt),
+            snapshot.resolvedAt === null ? null : new Date(snapshot.resolvedAt)
+          ]
+        );
+      }
+
+      for (const [ordinal, entry] of snapshot.evidenceEntries.entries()) {
+        await client.query(
+          `
+            INSERT INTO provider_dispute_evidence_entries (
+              provider_dispute_id,
+              ordinal,
+              label,
+              value
+            )
+            VALUES ($1, $2, $3, $4)
+          `,
+          [snapshot.id, ordinal, entry.label, entry.value]
+        );
+      }
+
+      for (const [ordinal, allocation] of snapshot.allocations.entries()) {
+        await client.query(
+          `
+            INSERT INTO provider_dispute_allocations (
+              provider_dispute_id,
+              ordinal,
+              provider_organization_id,
+              amount_cents
+            )
+            VALUES ($1, $2, $3, $4)
+          `,
+          [
+            snapshot.id,
+            ordinal,
+            allocation.providerOrganizationId,
+            UsdAmount.parse(allocation.amountUsd).cents
+          ]
+        );
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async hydrateProviderDisputeCases(
+    caseRows: readonly ProviderDisputeCaseRow[]
+  ): Promise<readonly ProviderDisputeCase[]> {
+    if (caseRows.length === 0) {
+      return [];
+    }
+
+    const uniqueCaseRows = Array.from(
+      new Map<string, ProviderDisputeCaseRow>(
+        caseRows.map((row) => [row.id, row])
+      ).values()
+    );
+    const disputeIds = uniqueCaseRows.map((row) => row.id);
+    const disputeIdPlaceholders = disputeIds
+      .map((_, index) => `$${String(index + 1)}`)
+      .join(", ");
+    const evidenceResult =
+      await this.pool.query<ProviderDisputeEvidenceEntryRow>(
+        `
+          SELECT provider_dispute_id::text AS provider_dispute_id, ordinal, label, value
+          FROM provider_dispute_evidence_entries
+          WHERE provider_dispute_id::text IN (${disputeIdPlaceholders})
+          ORDER BY provider_dispute_id ASC, ordinal ASC
+        `,
+        disputeIds
+      );
+    const allocationResult =
+      await this.pool.query<ProviderDisputeAllocationRow>(
+        `
+          SELECT
+            provider_dispute_id::text AS provider_dispute_id,
+            ordinal,
+            provider_organization_id::text AS provider_organization_id,
+            amount_cents::text AS amount_cents
+          FROM provider_dispute_allocations
+          WHERE provider_dispute_id::text IN (${disputeIdPlaceholders})
+          ORDER BY provider_dispute_id ASC, ordinal ASC
+        `,
+        disputeIds
+      );
+
+    const evidenceByDisputeId = new Map<string, Map<number, ProviderDisputeEvidenceEntryRow>>();
+    const allocationsByDisputeId = new Map<string, Map<number, ProviderDisputeAllocationRow>>();
+
+    for (const row of evidenceResult.rows) {
+      const disputeId = row.provider_dispute_id;
+      const ordinal = row.ordinal;
+      const rows =
+        evidenceByDisputeId.get(disputeId) ??
+        new Map<number, ProviderDisputeEvidenceEntryRow>();
+      rows.set(ordinal, row);
+      evidenceByDisputeId.set(disputeId, rows);
+    }
+
+    for (const row of allocationResult.rows) {
+      const disputeId = row.provider_dispute_id;
+      const ordinal = row.ordinal;
+      const rows =
+        allocationsByDisputeId.get(disputeId) ??
+        new Map<number, ProviderDisputeAllocationRow>();
+      rows.set(ordinal, row);
+      allocationsByDisputeId.set(disputeId, rows);
+    }
+
+    return uniqueCaseRows.map((row) => {
+      const evidenceEntries = [
+        ...(evidenceByDisputeId.get(row.id)?.values() ?? [])
+      ].map((entry) => ({
+        label: entry.label,
+        value: entry.value
+      }));
+      const allocations = [
+        ...(allocationsByDisputeId.get(row.id)?.values() ?? [])
+      ].map((allocation) => ({
+        providerOrganizationId: allocation.provider_organization_id,
+        amountUsd: UsdAmount.createFromCents(
+          Number.parseInt(allocation.amount_cents, 10)
+        ).toUsdString()
+      }));
+
+      return ProviderDisputeCase.rehydrate({
+        id: row.id,
+        buyerOrganizationId: row.buyer_organization_id,
+        createdByUserId: row.created_by_user_id,
+        disputeType: row.dispute_type,
+        source: row.source,
+        status: row.status,
+        paymentReference: row.payment_reference,
+        jobReference: row.job_reference,
+        disputedAmountUsd: UsdAmount.createFromCents(
+          Number.parseInt(row.disputed_amount_cents, 10)
+        ).toUsdString(),
+        reasonCode: row.reason_code,
+        summary: row.summary,
+        stripeDisputeId: row.stripe_dispute_id,
+        stripeChargeId: row.stripe_charge_id,
+        stripeReason: row.stripe_reason,
+        stripeStatus: row.stripe_status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        resolvedAt: row.resolved_at,
+        evidenceEntries,
+        allocations
+      });
+    });
+  }
+
   private toPlacementDecisionLogParameters(
     snapshot: PlacementDecisionLogSnapshot
   ): [
@@ -3546,6 +4682,8 @@ export class PostgresIdentityRepository
     number | null,
     number | null,
     boolean | null,
+    number | null,
+    number | null,
     string | null,
     Date
   ] {
@@ -3565,13 +4703,108 @@ export class PostgresIdentityRepository
       snapshot.selectionScore,
       snapshot.pricePerformanceScore,
       snapshot.warmCacheMatched,
+      snapshot.disputePenaltyMultiplier,
+      snapshot.lostDisputeCount90d,
       snapshot.rejectionReason,
       new Date(snapshot.createdAt)
     ];
   }
 
+  private mapProviderTrustTierRank(
+    trustTierRank: number | null
+  ): "t0_community" | "t1_vetted" | "t2_attested" | null {
+    if (trustTierRank === null) {
+      return null;
+    }
+
+    if (trustTierRank >= 2) {
+      return "t2_attested";
+    }
+
+    if (trustTierRank === 1) {
+      return "t1_vetted";
+    }
+
+    return "t0_community";
+  }
+
   private toUtcDateKey(input: Date): string {
     return input.toISOString().slice(0, 10);
+  }
+
+  private startOfUtcMinute(input: Date): Date {
+    return new Date(
+      Date.UTC(
+        input.getUTCFullYear(),
+        input.getUTCMonth(),
+        input.getUTCDate(),
+        input.getUTCHours(),
+        input.getUTCMinutes()
+      )
+    );
+  }
+
+  private startOfUtcDay(input: Date): Date {
+    return new Date(
+      Date.UTC(input.getUTCFullYear(), input.getUTCMonth(), input.getUTCDate())
+    );
+  }
+
+  private startOfNextUtcDay(input: Date): Date {
+    const start = this.startOfUtcDay(input);
+    start.setUTCDate(start.getUTCDate() + 1);
+    return start;
+  }
+
+  private async buildGatewayUsageQuotaSnapshot(
+    executor: Pick<Pool, "query"> | PoolClient,
+    organizationId: OrganizationId,
+    environment: ReturnType<typeof parseOrganizationApiKeyEnvironment>,
+    dayWindowStartedAt: Date,
+    dayWindowResetsAt: Date,
+    fixedDayTokenLimit: number,
+    syncRequestsPerMinutePerApiKey: number,
+    maxBatchItemsPerJob: number,
+    maxActiveBatchesPerOrganizationEnvironment: number
+  ): Promise<GatewayUsageQuotaSnapshot> {
+    const result = await executor.query<{ used_tokens: string }>(
+      `
+        SELECT
+          COALESCE(
+            SUM(
+              CASE
+                WHEN released_at IS NOT NULL THEN 0
+                ELSE COALESCE(actual_total_tokens, estimated_total_tokens)
+              END
+            ),
+            0
+          )::text AS used_tokens
+        FROM gateway_usage_admissions
+        WHERE organization_id = $1
+          AND environment = $2
+          AND created_at >= $3
+          AND created_at < $4
+      `,
+      [
+        organizationId.value,
+        environment,
+        dayWindowStartedAt.toISOString(),
+        dayWindowResetsAt.toISOString()
+      ]
+    );
+    const usedTokens = Number.parseInt(result.rows[0]?.used_tokens ?? "0", 10);
+
+    return {
+      environment,
+      fixedDayStartedAt: dayWindowStartedAt.toISOString(),
+      fixedDayResetsAt: dayWindowResetsAt.toISOString(),
+      fixedDayTokenLimit,
+      fixedDayUsedTokens: usedTokens,
+      fixedDayRemainingTokens: Math.max(fixedDayTokenLimit - usedTokens, 0),
+      syncRequestsPerMinutePerApiKey,
+      maxBatchItemsPerJob,
+      maxActiveBatchesPerOrganizationEnvironment
+    };
   }
 
   private mapProviderPayoutAccountRow(

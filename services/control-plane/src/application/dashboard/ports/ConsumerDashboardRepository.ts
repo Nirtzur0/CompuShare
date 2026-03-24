@@ -3,7 +3,9 @@ import type { OrganizationMember } from "../../../domain/identity/OrganizationMe
 import type { OrganizationId } from "../../../domain/identity/OrganizationId.js";
 import type { UserId } from "../../../domain/identity/UserId.js";
 import type { OrganizationWalletSummary } from "../../../domain/ledger/OrganizationWalletSummary.js";
+import type { OrganizationApiKeyEnvironment } from "../../../domain/identity/OrganizationApiKeyEnvironment.js";
 import type { ConsumerSpendSummary } from "../../../domain/dashboard/ConsumerSpendSummary.js";
+import type { GatewayUsageQuotaSnapshot } from "../../gateway/ports/GatewayUsageAdmissionRepository.js";
 
 export interface ConsumerDashboardRepository {
   findOrganizationAccountCapabilities(
@@ -43,4 +45,13 @@ export interface ConsumerDashboardRepository {
       totalTokens: number;
     }[]
   >;
+  getGatewayUsageQuotaSnapshot(input: {
+    organizationId: OrganizationId;
+    environment: OrganizationApiKeyEnvironment;
+    asOf: Date;
+    fixedDayTokenLimit: number;
+    syncRequestsPerMinutePerApiKey: number;
+    maxBatchItemsPerJob: number;
+    maxActiveBatchesPerOrganizationEnvironment: number;
+  }): Promise<GatewayUsageQuotaSnapshot>;
 }

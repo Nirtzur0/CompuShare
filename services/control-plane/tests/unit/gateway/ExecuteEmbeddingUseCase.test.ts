@@ -11,6 +11,7 @@ import {
 import { GatewayAuthorizationHeaderError } from "../../../src/application/gateway/ExecuteChatCompletionUseCase.js";
 import { PrepareSignedEmbeddingWorkloadBundleUseCase } from "../../../src/application/workload/PrepareSignedEmbeddingWorkloadBundleUseCase.js";
 import { VerifySignedWorkloadBundleAdmissionUseCase } from "../../../src/application/workload/VerifySignedWorkloadBundleAdmissionUseCase.js";
+import type { GatewayUsageAdmissionUseCase } from "../../../src/application/gateway/GatewayUsageAdmissionUseCase.js";
 import { InMemoryApprovedChatModelCatalog } from "../../../src/infrastructure/gateway/InMemoryApprovedChatModelCatalog.js";
 import { InMemoryApprovedEmbeddingModelCatalog } from "../../../src/infrastructure/gateway/InMemoryApprovedEmbeddingModelCatalog.js";
 import { HmacWorkloadBundleSignatureService } from "../../../src/infrastructure/security/HmacWorkloadBundleSignatureService.js";
@@ -45,6 +46,34 @@ function createUnusedChatDispatch(): (
   request: DispatchChatCompletionRequest
 ) => Promise<GatewayChatCompletionResponse> {
   return () => Promise.reject(new Error("unused chat path"));
+}
+
+function createGatewayUsageAdmissionDouble(): Pick<
+  GatewayUsageAdmissionUseCase,
+  "admitEmbedding" | "settle" | "release"
+> {
+  return {
+    admitEmbedding: () =>
+      Promise.resolve({
+        admissionId: "8de9922f-7437-41d2-b6ca-c76d6d89df3b",
+        fixedDayQuota: {
+          limit: 2_000_000,
+          used: 512,
+          remaining: 1_999_488,
+          windowStartedAt: "2026-03-18T00:00:00.000Z",
+          windowResetsAt: "2026-03-19T00:00:00.000Z"
+        },
+        requestRate: {
+          limit: 60,
+          used: 1,
+          remaining: 59,
+          windowStartedAt: "2026-03-18T12:04:00.000Z",
+          windowResetsAt: "2026-03-18T12:05:00.000Z"
+        }
+      }),
+    settle: () => Promise.resolve(),
+    release: () => Promise.resolve()
+  };
 }
 
 describe("ExecuteEmbeddingUseCase", () => {
@@ -174,6 +203,7 @@ describe("ExecuteEmbeddingUseCase", () => {
           return Promise.resolve();
         }
       },
+      createGatewayUsageAdmissionDouble(),
       () => new Date("2026-03-18T12:04:00.000Z"),
       () => 100
     );
@@ -250,7 +280,8 @@ describe("ExecuteEmbeddingUseCase", () => {
         dispatchEmbedding: async () => Promise.reject(new Error("unused"))
       },
       { execute: async () => Promise.reject(new Error("unused")) } as never,
-      { record: async () => Promise.reject(new Error("unused")) }
+      { record: async () => Promise.reject(new Error("unused")) },
+      createGatewayUsageAdmissionDouble()
     );
 
     await expect(
@@ -298,7 +329,8 @@ describe("ExecuteEmbeddingUseCase", () => {
         dispatchEmbedding: async () => Promise.reject(new Error("unused"))
       },
       { execute: async () => Promise.reject(new Error("unused")) } as never,
-      { record: async () => Promise.reject(new Error("unused")) }
+      { record: async () => Promise.reject(new Error("unused")) },
+      createGatewayUsageAdmissionDouble()
     );
 
     await expect(

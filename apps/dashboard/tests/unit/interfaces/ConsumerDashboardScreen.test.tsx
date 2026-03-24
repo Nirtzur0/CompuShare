@@ -36,6 +36,17 @@ describe("ConsumerDashboardScreen", () => {
           totalTokens: 2048,
         },
       ],
+      gatewayQuotaStatus: {
+        environment: "development",
+        fixedDayStartedAt: "2026-03-08T00:00:00.000Z",
+        fixedDayResetsAt: "2026-03-09T00:00:00.000Z",
+        fixedDayTokenLimit: 2000000,
+        fixedDayUsedTokens: 2048,
+        fixedDayRemainingTokens: 1997952,
+        syncRequestsPerMinutePerApiKey: 60,
+        maxBatchItemsPerJob: 500,
+        maxActiveBatchesPerOrganizationEnvironment: 5,
+      },
     });
 
     render(<ConsumerDashboardScreen overview={overview} />);
@@ -46,6 +57,8 @@ describe("ConsumerDashboardScreen", () => {
     expect(screen.getAllByText("Prepaid balance")).toHaveLength(2);
     expect(screen.getAllByText("$50.00")).toHaveLength(4);
     expect(screen.getAllByText("Settled spend")).toHaveLength(2);
+    expect(screen.getByText("Daily token quota used")).toBeTruthy();
+    expect(screen.getByText("Sync request rate limit")).toBeTruthy();
     expect(screen.getByText("Daily usage")).toBeTruthy();
     expect(screen.getByText("Latency by model")).toBeTruthy();
   });

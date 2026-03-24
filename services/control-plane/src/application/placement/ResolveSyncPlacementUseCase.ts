@@ -84,9 +84,21 @@ export class ResolveSyncPlacementUseCase {
       maxPriceUsdPerHour: request.maxPriceUsdPerHour
     });
     const occurredAt = this.clock();
+    const lostDisputeCounts =
+      await this.repository.listRecentLostDisputeCountsByProviderOrganization({
+        lostSinceInclusive: new Date(
+          occurredAt.getTime() - 90 * 24 * 60 * 60 * 1000
+        )
+      });
     const candidates = this.planner.buildCandidates(
       requirements,
       await this.repository.listPlacementProviderInventorySummaries(),
+      new Map(
+        lostDisputeCounts.map((entry) => [
+          entry.providerOrganizationId,
+          entry.lostDisputeCount
+        ])
+      ),
       request.approvedModelAlias
     );
     const selectedCandidate =
@@ -128,6 +140,8 @@ export class ResolveSyncPlacementUseCase {
       selectionScore: selectedCandidate.score,
       pricePerformanceScore: selectedCandidate.pricePerformanceScore,
       warmCacheMatched: selectedCandidate.warmCacheMultiplier > 1,
+      disputePenaltyMultiplier: selectedCandidate.disputePenaltyMultiplier,
+      lostDisputeCount90d: selectedCandidate.lostDisputeCount90d,
       createdAt: occurredAt
     });
 
@@ -142,7 +156,9 @@ export class ResolveSyncPlacementUseCase {
         selectedProviderNodeId: selectedCandidate.providerNodeId,
         selectionScore: selectedCandidate.score,
         pricePerformanceScore: selectedCandidate.pricePerformanceScore,
-        warmCacheMatched: selectedCandidate.warmCacheMultiplier > 1
+        warmCacheMatched: selectedCandidate.warmCacheMultiplier > 1,
+        disputePenaltyMultiplier: selectedCandidate.disputePenaltyMultiplier,
+        lostDisputeCount90d: selectedCandidate.lostDisputeCount90d
       }
     );
 
@@ -170,6 +186,8 @@ export class ResolveSyncPlacementUseCase {
       selectionScore?: number;
       pricePerformanceScore?: number;
       warmCacheMatched?: boolean;
+      disputePenaltyMultiplier?: number;
+      lostDisputeCount90d?: number;
       rejectionReason?: string;
     }
   ): Promise<void> {
@@ -192,6 +210,8 @@ export class ResolveSyncPlacementUseCase {
         selectionScore: outcome.selectionScore ?? null,
         pricePerformanceScore: outcome.pricePerformanceScore ?? null,
         warmCacheMatched: outcome.warmCacheMatched ?? null,
+        disputePenaltyMultiplier: outcome.disputePenaltyMultiplier ?? null,
+        lostDisputeCount90d: outcome.lostDisputeCount90d ?? null,
         rejectionReason: outcome.rejectionReason ?? null
       }
     });

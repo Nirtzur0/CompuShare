@@ -276,6 +276,27 @@ export class IdentitySchemaInitializer {
       CREATE INDEX IF NOT EXISTS gateway_usage_meter_events_model_occurred_idx
       ON gateway_usage_meter_events (approved_model_alias, occurred_at);
 
+      CREATE TABLE IF NOT EXISTS gateway_usage_admissions (
+        id UUID PRIMARY KEY,
+        organization_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+        environment TEXT NOT NULL,
+        api_key_scope_id UUID NOT NULL,
+        request_kind TEXT NOT NULL,
+        request_source TEXT NOT NULL,
+        estimated_total_tokens INTEGER NOT NULL,
+        actual_total_tokens INTEGER NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        settled_at TIMESTAMPTZ NULL,
+        released_at TIMESTAMPTZ NULL,
+        release_reason TEXT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS gateway_usage_admissions_scope_created_idx
+      ON gateway_usage_admissions (api_key_scope_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS gateway_usage_admissions_org_env_created_idx
+      ON gateway_usage_admissions (organization_id, environment, created_at DESC);
+
       ALTER TABLE gateway_usage_meter_events
       ADD COLUMN IF NOT EXISTS execution_target_type TEXT NOT NULL DEFAULT 'marketplace_provider';
 
@@ -356,7 +377,60 @@ export class IdentitySchemaInitializer {
       CREATE INDEX IF NOT EXISTS provider_payout_disbursements_org_created_idx
       ON provider_payout_disbursements (provider_organization_id, created_at DESC);
 
+      CREATE TABLE IF NOT EXISTS provider_dispute_cases (
+        id UUID PRIMARY KEY,
+        buyer_organization_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+        created_by_user_id UUID NULL REFERENCES users (id) ON DELETE SET NULL,
+        dispute_type TEXT NOT NULL,
+        source TEXT NOT NULL,
+        status TEXT NOT NULL,
+        payment_reference TEXT NULL,
+        job_reference TEXT NULL,
+        disputed_amount_cents BIGINT NOT NULL,
+        reason_code TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        stripe_dispute_id TEXT NULL UNIQUE,
+        stripe_charge_id TEXT NULL,
+        stripe_reason TEXT NULL,
+        stripe_status TEXT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        resolved_at TIMESTAMPTZ NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS provider_dispute_cases_buyer_updated_idx
+      ON provider_dispute_cases (buyer_organization_id, updated_at DESC, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS provider_dispute_cases_payment_reference_idx
+      ON provider_dispute_cases (buyer_organization_id, payment_reference);
+
+      CREATE TABLE IF NOT EXISTS provider_dispute_evidence_entries (
+        provider_dispute_id UUID NOT NULL REFERENCES provider_dispute_cases (id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        value TEXT NOT NULL,
+        PRIMARY KEY (provider_dispute_id, ordinal)
+      );
+
+      CREATE TABLE IF NOT EXISTS provider_dispute_allocations (
+        provider_dispute_id UUID NOT NULL REFERENCES provider_dispute_cases (id) ON DELETE CASCADE,
+        ordinal INTEGER NOT NULL,
+        provider_organization_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+        amount_cents BIGINT NOT NULL,
+        PRIMARY KEY (provider_dispute_id, ordinal)
+      );
+
+      CREATE INDEX IF NOT EXISTS provider_dispute_allocations_provider_idx
+      ON provider_dispute_allocations (provider_organization_id, provider_dispute_id);
+
       CREATE TABLE IF NOT EXISTS stripe_webhook_receipts (
+        event_id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        received_at TIMESTAMPTZ NOT NULL,
+        payload JSONB NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS stripe_dispute_webhook_receipts (
         event_id TEXT PRIMARY KEY,
         event_type TEXT NOT NULL,
         received_at TIMESTAMPTZ NOT NULL,
@@ -387,6 +461,12 @@ export class IdentitySchemaInitializer {
 
       CREATE INDEX IF NOT EXISTS gateway_batch_jobs_status_created_idx
       ON gateway_batch_jobs (status, created_at ASC);
+
+      ALTER TABLE placement_decision_logs
+      ADD COLUMN IF NOT EXISTS dispute_penalty_multiplier DOUBLE PRECISION NULL;
+
+      ALTER TABLE placement_decision_logs
+      ADD COLUMN IF NOT EXISTS lost_dispute_count_90d INTEGER NULL;
 
       CREATE TABLE IF NOT EXISTS gateway_batch_items (
         batch_id UUID NOT NULL REFERENCES gateway_batch_jobs (id) ON DELETE CASCADE,

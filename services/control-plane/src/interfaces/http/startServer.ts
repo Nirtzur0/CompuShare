@@ -1,9 +1,15 @@
 import "dotenv/config";
 import { Pool } from "pg";
+import { GenerateDpaExportUseCase } from "../../application/compliance/GenerateDpaExportUseCase.js";
+import { GetSubprocessorRegistryUseCase } from "../../application/compliance/GetSubprocessorRegistryUseCase.js";
+import { GetComplianceOverviewUseCase } from "../../application/dashboard/GetComplianceOverviewUseCase.js";
+import { GetConsumerDisputeDashboardUseCase } from "../../application/dashboard/GetConsumerDisputeDashboardUseCase.js";
 import { GetConsumerDashboardOverviewUseCase } from "../../application/dashboard/GetConsumerDashboardOverviewUseCase.js";
 import { GetPrivateConnectorDashboardUseCase } from "../../application/dashboard/GetPrivateConnectorDashboardUseCase.js";
 import { GetProviderDashboardOverviewUseCase } from "../../application/dashboard/GetProviderDashboardOverviewUseCase.js";
+import { GetProviderDisputeDashboardUseCase } from "../../application/dashboard/GetProviderDisputeDashboardUseCase.js";
 import { GetProviderPricingSimulatorUseCase } from "../../application/dashboard/GetProviderPricingSimulatorUseCase.js";
+import { CreateProviderDisputeUseCase } from "../../application/dispute/CreateProviderDisputeUseCase.js";
 import { GetFraudReviewAlertsUseCase } from "../../application/fraud/GetFraudReviewAlertsUseCase.js";
 import { CancelGatewayBatchUseCase } from "../../application/batch/CancelGatewayBatchUseCase.js";
 import { CreateGatewayBatchUseCase } from "../../application/batch/CreateGatewayBatchUseCase.js";
@@ -12,12 +18,16 @@ import { GetGatewayFileUseCase } from "../../application/batch/GetGatewayFileUse
 import { UploadGatewayFileUseCase } from "../../application/batch/UploadGatewayFileUseCase.js";
 import { GetOrganizationWalletSummaryUseCase } from "../../application/ledger/GetOrganizationWalletSummaryUseCase.js";
 import { GetStagedPayoutExportUseCase } from "../../application/ledger/GetStagedPayoutExportUseCase.js";
+import { ListProviderDisputesUseCase } from "../../application/dispute/ListProviderDisputesUseCase.js";
 import { GetProviderPayoutAccountStatusUseCase } from "../../application/payout/GetProviderPayoutAccountStatusUseCase.js";
 import { GetProviderPayoutAvailabilityUseCase } from "../../application/payout/GetProviderPayoutAvailabilityUseCase.js";
 import { IssueProviderPayoutOnboardingLinkUseCase } from "../../application/payout/IssueProviderPayoutOnboardingLinkUseCase.js";
+import { ProcessStripeDisputeWebhookUseCase } from "../../application/dispute/ProcessStripeDisputeWebhookUseCase.js";
 import { ProcessStripeConnectWebhookUseCase } from "../../application/payout/ProcessStripeConnectWebhookUseCase.js";
+import { RecordProviderDisputeAllocationsUseCase } from "../../application/dispute/RecordProviderDisputeAllocationsUseCase.js";
 import { RecordCompletedJobSettlementUseCase } from "../../application/ledger/RecordCompletedJobSettlementUseCase.js";
 import { RecordCustomerChargeUseCase } from "../../application/ledger/RecordCustomerChargeUseCase.js";
+import { TransitionProviderDisputeStatusUseCase } from "../../application/dispute/TransitionProviderDisputeStatusUseCase.js";
 import { AuthenticateOrganizationApiKeyUseCase } from "../../application/identity/AuthenticateOrganizationApiKeyUseCase.js";
 import { AuthenticateGatewayApiKeyUseCase } from "../../application/identity/AuthenticateGatewayApiKeyUseCase.js";
 import { AcceptOrganizationInvitationUseCase } from "../../application/identity/AcceptOrganizationInvitationUseCase.js";
@@ -27,6 +37,7 @@ import { IssueOrganizationInvitationUseCase } from "../../application/identity/I
 import { UpdateOrganizationMemberRoleUseCase } from "../../application/identity/UpdateOrganizationMemberRoleUseCase.js";
 import { ExecuteChatCompletionUseCase } from "../../application/gateway/ExecuteChatCompletionUseCase.js";
 import { ExecuteEmbeddingUseCase } from "../../application/gateway/ExecuteEmbeddingUseCase.js";
+import { GatewayUsageAdmissionUseCase } from "../../application/gateway/GatewayUsageAdmissionUseCase.js";
 import { AdmitPrivateConnectorExecutionGrantUseCase } from "../../application/privateConnector/AdmitPrivateConnectorExecutionGrantUseCase.js";
 import { CreatePrivateConnectorUseCase } from "../../application/privateConnector/CreatePrivateConnectorUseCase.js";
 import { ListPrivateConnectorsUseCase } from "../../application/privateConnector/ListPrivateConnectorsUseCase.js";
@@ -40,8 +51,6 @@ import { ListPlacementCandidatesUseCase } from "../../application/placement/List
 import { ResolveSyncPlacementUseCase } from "../../application/placement/ResolveSyncPlacementUseCase.js";
 import { AdmitProviderRuntimeWorkloadBundleUseCase } from "../../application/provider/AdmitProviderRuntimeWorkloadBundleUseCase.js";
 import { FetchGatewayUpstreamClient } from "../../infrastructure/gateway/FetchGatewayUpstreamClient.js";
-import { InMemoryApprovedChatModelCatalog } from "../../infrastructure/gateway/InMemoryApprovedChatModelCatalog.js";
-import { InMemoryApprovedEmbeddingModelCatalog } from "../../infrastructure/gateway/InMemoryApprovedEmbeddingModelCatalog.js";
 import { EnrollProviderNodeUseCase } from "../../application/provider/EnrollProviderNodeUseCase.js";
 import { GetProviderNodeDetailUseCase } from "../../application/provider/GetProviderNodeDetailUseCase.js";
 import { IssueProviderNodeAttestationChallengeUseCase } from "../../application/provider/IssueProviderNodeAttestationChallengeUseCase.js";
@@ -51,12 +60,16 @@ import { RecordProviderBenchmarkUseCase } from "../../application/provider/Recor
 import { ReplaceProviderNodeRoutingStateUseCase } from "../../application/provider/ReplaceProviderNodeRoutingStateUseCase.js";
 import { SubmitProviderNodeAttestationUseCase } from "../../application/provider/SubmitProviderNodeAttestationUseCase.js";
 import { UpsertProviderNodeRoutingProfileUseCase } from "../../application/provider/UpsertProviderNodeRoutingProfileUseCase.js";
-import { PlacementScoringPolicy } from "../../config/PlacementScoringPolicy.js";
-import { ProviderNodeAttestationPolicy } from "../../config/ProviderNodeAttestationPolicy.js";
-import { FraudDetectionPolicy } from "../../config/FraudDetectionPolicy.js";
+import { GatewayTrafficPolicy } from "../../config/GatewayTrafficPolicy.js";
+import { loadControlPlaneProductDefaults } from "../../config/ControlPlaneProductDefaults.js";
+import {
+  loadComplianceDocumentSettings,
+  loadComplianceMarkdownTemplates
+} from "../../config/ComplianceDocumentSources.js";
 import { loadControlPlaneSettings } from "../../config/ControlPlaneSettings.js";
 import { StructuredConsoleAuditLog } from "../../infrastructure/observability/StructuredConsoleAuditLog.js";
 import { StripeSdkConnectClient } from "../../infrastructure/payments/StripeConnectClient.js";
+import { StripeSdkDisputeClient } from "../../infrastructure/payments/StripeDisputeClient.js";
 import { IdentitySchemaInitializer } from "../../infrastructure/persistence/postgres/IdentitySchemaInitializer.js";
 import { PostgresIdentityRepository } from "../../infrastructure/persistence/postgres/PostgresIdentityRepository.js";
 import { PostgresPrivateConnectorRepository } from "../../infrastructure/persistence/postgres/PostgresPrivateConnectorRepository.js";
@@ -76,10 +89,12 @@ async function startServer(): Promise<void> {
     pool
   );
   const auditLog = new StructuredConsoleAuditLog();
-  const placementScoringPolicy = PlacementScoringPolicy.createDefault();
-  const fraudDetectionPolicy = FraudDetectionPolicy.createDefault();
-  const providerNodeAttestationPolicy =
-    ProviderNodeAttestationPolicy.createDefault();
+  const productDefaults = loadControlPlaneProductDefaults();
+  const gatewayTrafficPolicy = GatewayTrafficPolicy.load(process.env);
+  const complianceDocumentSettings = loadComplianceDocumentSettings(
+    process.env
+  );
+  const complianceMarkdownTemplates = loadComplianceMarkdownTemplates();
   const createOrganizationUseCase = new CreateOrganizationUseCase(
     repository,
     auditLog
@@ -119,8 +134,40 @@ async function startServer(): Promise<void> {
     settings.stripeConnectRefreshUrlBase !== undefined
       ? new GetProviderPayoutAvailabilityUseCase(repository)
       : undefined;
+  const createProviderDisputeUseCase = new CreateProviderDisputeUseCase(
+    repository,
+    auditLog
+  );
+  const listProviderDisputesUseCase = new ListProviderDisputesUseCase(
+    repository
+  );
+  const recordProviderDisputeAllocationsUseCase =
+    new RecordProviderDisputeAllocationsUseCase(repository, auditLog);
+  const transitionProviderDisputeStatusUseCase =
+    new TransitionProviderDisputeStatusUseCase(repository, auditLog);
   const getConsumerDashboardOverviewUseCase =
-    new GetConsumerDashboardOverviewUseCase(repository, auditLog);
+    new GetConsumerDashboardOverviewUseCase(repository, auditLog, {
+      gatewayTrafficPolicy
+    });
+  const getConsumerDisputeDashboardUseCase =
+    new GetConsumerDisputeDashboardUseCase(repository, auditLog);
+  const getComplianceOverviewUseCase = new GetComplianceOverviewUseCase(
+    repository,
+    auditLog,
+    complianceDocumentSettings,
+    productDefaults.platformSubprocessors
+  );
+  const getSubprocessorRegistryUseCase = new GetSubprocessorRegistryUseCase(
+    complianceDocumentSettings,
+    productDefaults.platformSubprocessors
+  );
+  const generateDpaExportUseCase = new GenerateDpaExportUseCase(
+    repository,
+    auditLog,
+    complianceDocumentSettings,
+    productDefaults.platformSubprocessors,
+    complianceMarkdownTemplates
+  );
   const getPrivateConnectorDashboardUseCase =
     new GetPrivateConnectorDashboardUseCase(
       privateConnectorRepository,
@@ -128,12 +175,14 @@ async function startServer(): Promise<void> {
     );
   const getProviderDashboardOverviewUseCase =
     new GetProviderDashboardOverviewUseCase(repository, auditLog);
+  const getProviderDisputeDashboardUseCase =
+    new GetProviderDisputeDashboardUseCase(repository, auditLog);
   const getProviderPricingSimulatorUseCase =
     new GetProviderPricingSimulatorUseCase(repository, auditLog);
   const getFraudReviewAlertsUseCase = new GetFraudReviewAlertsUseCase(
     repository,
     auditLog,
-    fraudDetectionPolicy
+    productDefaults.fraudDetectionPolicy
   );
   const listPlacementCandidatesUseCase = new ListPlacementCandidatesUseCase(
     repository
@@ -142,10 +191,9 @@ async function startServer(): Promise<void> {
     repository,
     auditLog
   );
-  const approvedChatModelCatalog =
-    InMemoryApprovedChatModelCatalog.createDefault();
+  const approvedChatModelCatalog = productDefaults.approvedChatModelCatalog;
   const approvedEmbeddingModelCatalog =
-    InMemoryApprovedEmbeddingModelCatalog.createDefault();
+    productDefaults.approvedEmbeddingModelCatalog;
   const workloadBundleSignatureService = new HmacWorkloadBundleSignatureService(
     settings.workloadBundleSigningKey,
     settings.workloadBundleSigningKeyId
@@ -176,6 +224,11 @@ async function startServer(): Promise<void> {
   const gatewayUsageMeterEventUseCase = new RecordGatewayUsageMeterEventUseCase(
     repository,
     auditLog
+  );
+  const gatewayUsageAdmissionUseCase = new GatewayUsageAdmissionUseCase(
+    repository,
+    auditLog,
+    gatewayTrafficPolicy
   );
   const createPrivateConnectorUseCase = new CreatePrivateConnectorUseCase(
     privateConnectorRepository,
@@ -208,9 +261,8 @@ async function startServer(): Promise<void> {
     new FetchGatewayUpstreamClient(),
     gatewayUsageMeterEventUseCase,
     auditLog,
-    undefined,
-    undefined,
-    resolvePrivateConnectorExecutionUseCase
+    gatewayUsageAdmissionUseCase,
+    { resolvePrivateConnectorExecutionUseCase }
   );
   const executeEmbeddingUseCase = new ExecuteEmbeddingUseCase(
     authenticateGatewayApiKeyUseCase,
@@ -219,7 +271,8 @@ async function startServer(): Promise<void> {
     prepareSignedEmbeddingWorkloadBundleUseCase,
     new FetchGatewayUpstreamClient(),
     gatewayUsageMeterEventUseCase,
-    auditLog
+    auditLog,
+    gatewayUsageAdmissionUseCase
   );
   const enrollProviderNodeUseCase = new EnrollProviderNodeUseCase(
     repository,
@@ -238,16 +291,16 @@ async function startServer(): Promise<void> {
   const issueProviderNodeAttestationChallengeUseCase =
     new IssueProviderNodeAttestationChallengeUseCase(
       repository,
-      providerNodeAttestationPolicy,
+      productDefaults.providerNodeAttestationPolicy,
       auditLog
     );
   const submitProviderNodeAttestationUseCase =
     new SubmitProviderNodeAttestationUseCase(
       repository,
       new NodeCryptoProviderNodeAttestationVerifier(
-        providerNodeAttestationPolicy
+        productDefaults.providerNodeAttestationPolicy
       ),
-      providerNodeAttestationPolicy,
+      productDefaults.providerNodeAttestationPolicy,
       auditLog
     );
   const upsertProviderNodeRoutingProfileUseCase =
@@ -256,7 +309,7 @@ async function startServer(): Promise<void> {
     new ReplaceProviderNodeRoutingStateUseCase(
       repository,
       approvedChatModelCatalog,
-      placementScoringPolicy,
+      productDefaults.placementScoringPolicy,
       auditLog
     );
   const listProviderBenchmarkHistoryUseCase =
@@ -277,7 +330,8 @@ async function startServer(): Promise<void> {
   const createGatewayBatchUseCase = new CreateGatewayBatchUseCase(
     authenticateGatewayApiKeyUseCase,
     repository,
-    auditLog
+    auditLog,
+    { gatewayTrafficPolicy }
   );
   const getGatewayBatchUseCase = new GetGatewayBatchUseCase(
     authenticateGatewayApiKeyUseCase,
@@ -300,6 +354,14 @@ async function startServer(): Promise<void> {
       : undefined;
   const stripeConnectReturnUrlBase = settings.stripeConnectReturnUrlBase;
   const stripeConnectRefreshUrlBase = settings.stripeConnectRefreshUrlBase;
+  const stripeDisputeClient =
+    settings.stripeSecretKey !== undefined &&
+    settings.stripeDisputeWebhookSecret !== undefined
+      ? new StripeSdkDisputeClient(
+          settings.stripeSecretKey,
+          settings.stripeDisputeWebhookSecret
+        )
+      : undefined;
   const issueProviderPayoutOnboardingLinkUseCase =
     stripeConnectClient === undefined ||
     stripeConnectReturnUrlBase === undefined ||
@@ -328,6 +390,14 @@ async function startServer(): Promise<void> {
           stripeConnectClient,
           auditLog
         );
+  const processStripeDisputeWebhookUseCase =
+    stripeDisputeClient === undefined
+      ? undefined
+      : new ProcessStripeDisputeWebhookUseCase(
+          repository,
+          stripeDisputeClient,
+          auditLog
+        );
   const app = buildApp({
     createOrganizationUseCase,
     issueOrganizationInvitationUseCase,
@@ -348,11 +418,23 @@ async function startServer(): Promise<void> {
     ...(getProviderPayoutAvailabilityUseCase === undefined
       ? {}
       : { getProviderPayoutAvailabilityUseCase }),
+    createProviderDisputeUseCase,
+    listProviderDisputesUseCase,
+    recordProviderDisputeAllocationsUseCase,
+    transitionProviderDisputeStatusUseCase,
     ...(processStripeConnectWebhookUseCase === undefined
       ? {}
       : { processStripeConnectWebhookUseCase }),
+    ...(processStripeDisputeWebhookUseCase === undefined
+      ? {}
+      : { processStripeDisputeWebhookUseCase }),
+    getComplianceOverviewUseCase,
+    getConsumerDisputeDashboardUseCase,
     getConsumerDashboardOverviewUseCase,
+    getSubprocessorRegistryUseCase,
+    generateDpaExportUseCase,
     getProviderDashboardOverviewUseCase,
+    getProviderDisputeDashboardUseCase,
     getPrivateConnectorDashboardUseCase,
     getProviderPricingSimulatorUseCase,
     getFraudReviewAlertsUseCase,

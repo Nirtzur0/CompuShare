@@ -24,6 +24,17 @@ export interface ConsumerDashboardOverviewSnapshot {
     p95LatencyMs: number;
     totalTokens: number;
   }[];
+  gatewayQuotaStatus: {
+    environment: "development" | "staging" | "production";
+    fixedDayStartedAt: string;
+    fixedDayResetsAt: string;
+    fixedDayTokenLimit: number;
+    fixedDayUsedTokens: number;
+    fixedDayRemainingTokens: number;
+    syncRequestsPerMinutePerApiKey: number;
+    maxBatchItemsPerJob: number;
+    maxActiveBatchesPerOrganizationEnvironment: number;
+  };
 }
 
 export class ConsumerDashboardOverview {
@@ -111,5 +122,9 @@ export class ConsumerDashboardOverview {
     totalTokens: number;
   }[] {
     return this.snapshot.latencyByModel;
+  }
+
+  public get gatewayQuotaStatus(): ConsumerDashboardOverviewSnapshot["gatewayQuotaStatus"] {
+    return this.snapshot.gatewayQuotaStatus;
   }
 }

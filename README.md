@@ -48,7 +48,7 @@ pnpm dev:provider-runtime
 pnpm dev:batch-worker
 ```
 
-7. Seed demo data. The command prints JSON to stdout and a readable summary with ready-to-open buyer dashboard, buyer private connector dashboard, provider overview, provider pricing simulator, chat, private connector, embeddings, and batch demo commands:
+7. Seed demo data. The command prints JSON to stdout and a readable summary with the public operations index, public subprocessor transparency, buyer dashboard, buyer dispute dashboard, buyer private connector dashboard, buyer compliance dashboard, provider overview, provider dispute dashboard, provider pricing simulator, DPA export, chat, private connector, embeddings, and batch demo commands:
 
 ```bash
 pnpm seed:demo
@@ -62,9 +62,84 @@ pnpm dev:dashboard
 
 The dashboard runs on `http://127.0.0.1:3000` by default. The control-plane runs on `http://127.0.0.1:3100` by default. The local provider runtime runs on `http://127.0.0.1:3200` by default.
 
+## Operations runbooks
+
+The dashboard exposes a public operations index at:
+
+```text
+http://127.0.0.1:3000/operations
+```
+
+That page is an index only. The canonical runbooks live in the repository:
+
+- [docs/runbooks/incident-response.md](/Users/nirtzur/Documents/projects/CompuShare/docs/runbooks/incident-response.md)
+- [docs/runbooks/on-call-rotation.md](/Users/nirtzur/Documents/projects/CompuShare/docs/runbooks/on-call-rotation.md)
+- [docs/runbooks/support-escalation.md](/Users/nirtzur/Documents/projects/CompuShare/docs/runbooks/support-escalation.md)
+
+The runbooks cover the release-gate evidence for incident response, on-call rotation, and support escalation readiness.
+
 ## End-to-end gateway demo
 
 After seeding, run the emitted curl command against the control-plane gateway. The request will route to the local provider runtime, the provider runtime will call control-plane runtime admission with its scoped provider API key, and the mock completion response will come back through the real gateway path.
+
+## Gateway rate-limit and quota hardening
+
+The control-plane now enforces deterministic gateway admission controls before upstream dispatch:
+
+- per-API-key sync request rate limits
+- per-organization/environment fixed-day token quotas
+- per-job batch item caps
+- per-organization/environment active batch caps
+
+### Control-plane env knobs
+
+Set these in [services/control-plane/.env.example](/Users/nirtzur/Documents/projects/CompuShare/services/control-plane/.env.example) or your local `.env`:
+
+- `GATEWAY_SYNC_REQUESTS_PER_MINUTE_PER_API_KEY`
+- `GATEWAY_FIXED_DAY_TOKEN_QUOTA_PER_ORG_ENV`
+- `GATEWAY_MAX_BATCH_ITEMS_PER_JOB`
+- `GATEWAY_MAX_ACTIVE_BATCHES_PER_ORG_ENV`
+- `GATEWAY_DEFAULT_CHAT_MAX_TOKENS_RESERVATION`
+
+### Low-limit local verification
+
+Use very small limits locally, restart `pnpm dev:control-plane`, then replay the emitted seed curl commands:
+
+```bash
+GATEWAY_SYNC_REQUESTS_PER_MINUTE_PER_API_KEY=1
+GATEWAY_FIXED_DAY_TOKEN_QUOTA_PER_ORG_ENV=100
+GATEWAY_MAX_BATCH_ITEMS_PER_JOB=1
+GATEWAY_MAX_ACTIVE_BATCHES_PER_ORG_ENV=1
+GATEWAY_DEFAULT_CHAT_MAX_TOKENS_RESERVATION=64
+```
+
+The second sync request in the same minute or a request whose estimated tokens exceed the remaining fixed-day budget will return `429 Too Many Requests` with structured metadata and `Retry-After`, for example:
+
+```json
+{
+  "error": "GATEWAY_REQUEST_RATE_LIMIT_EXCEEDED",
+  "message": "Gateway request rate limit exceeded.",
+  "metadata": {
+    "limit": 1,
+    "used": 1,
+    "remaining": 0,
+    "windowStartedAt": "2026-03-11T10:00:00.000Z",
+    "windowResetsAt": "2026-03-11T10:01:00.000Z"
+  }
+}
+```
+
+Batch creation is also blocked deterministically when a file exceeds `GATEWAY_MAX_BATCH_ITEMS_PER_JOB` or the organization already has `GATEWAY_MAX_ACTIVE_BATCHES_PER_ORG_ENV` non-terminal jobs.
+
+### Consumer quota visibility
+
+The buyer dashboard overview now requires an explicit environment query param because the quota snapshot is environment-scoped:
+
+```text
+http://127.0.0.1:3000/consumer?organizationId=<buyer_org_id>&actorUserId=<buyer_finance_user_id>&environment=development
+```
+
+That view shows additive gateway quota status only. It does not change ledger balances.
 
 ## Private connector demo
 
@@ -317,6 +392,85 @@ The page reads authoritative baselines from:
 - 30-day realized settlement economics
 
 Scenario edits stay local in the browser. No dashboard action writes pricing changes back to the control-plane.
+
+## Provider dispute workflow demo
+
+The platform now exposes a buyer-finance dispute workflow plus a provider-facing read-only dispute ledger view.
+
+Dashboard URLs:
+
+```text
+http://127.0.0.1:3000/consumer/disputes?organizationId=<buyer_org_id>&actorUserId=<buyer_finance_user_id>
+http://127.0.0.1:3000/provider/disputes?organizationId=<provider_org_id>&actorUserId=<provider_finance_user_id>
+```
+
+Finance and webhook APIs:
+
+- `POST /v1/organizations/:organizationId/finance/provider-disputes`
+- `GET /v1/organizations/:organizationId/finance/provider-disputes?actorUserId=...&status=...`
+- `POST /v1/organizations/:organizationId/finance/provider-disputes/:disputeId/allocations`
+- `POST /v1/organizations/:organizationId/finance/provider-disputes/:disputeId/status`
+- `POST /v1/webhooks/stripe/disputes`
+
+Manual settlement dispute example:
+
+```bash
+curl -sS \
+  -H "Content-Type: application/json" \
+  -X POST "http://127.0.0.1:3100/v1/organizations/<buyer_org_id>/finance/provider-disputes" \
+  -d '{
+    "actorUserId": "<buyer_finance_user_id>",
+    "disputeType": "settlement",
+    "providerOrganizationId": "<provider_org_id>",
+    "jobReference": "job_0001",
+    "disputedAmountUsd": "4.00",
+    "reasonCode": "quality_miss",
+    "summary": "Provider missed the agreed latency and quality threshold.",
+    "evidenceEntries": [
+      { "label": "log_excerpt", "value": "p95 latency exceeded the SLA window" }
+    ]
+  }'
+```
+
+Manual chargeback allocation example:
+
+```bash
+curl -sS \
+  -H "Content-Type: application/json" \
+  -X POST "http://127.0.0.1:3100/v1/organizations/<buyer_org_id>/finance/provider-disputes/<dispute_id>/allocations" \
+  -d '{
+    "actorUserId": "<buyer_finance_user_id>",
+    "allocations": [
+      { "providerOrganizationId": "<provider_org_id>", "amountUsd": "2.50" }
+    ]
+  }'
+```
+
+`GET /v1/organizations/:organizationId/finance/provider-payout-availability` now reports `activeDisputeHoldUsd` alongside `eligiblePayoutUsd`, and placement logs include `lostDisputeCount90d` with `disputePenaltyMultiplier`.
+
+## Compliance transparency and DPA export demo
+
+The dashboard now includes:
+
+- a public transparency page at `/subprocessors`
+- a buyer compliance overview at `/consumer/compliance?organizationId=...&actorUserId=...&environment=...`
+- a markdown DPA export route at `GET /v1/organizations/:organizationId/compliance/dpa-export?actorUserId=...&environment=...`
+
+After `pnpm seed:demo`, open the emitted public and buyer compliance URLs or use these forms:
+
+```text
+http://127.0.0.1:3000/subprocessors
+http://127.0.0.1:3000/consumer/compliance?organizationId=<buyer_org_id>&actorUserId=<buyer_finance_user_id>&environment=development
+```
+
+The public page lists repo-tracked platform subprocessors. The buyer page shows the platform appendix plus currently routable provider subprocessors for the chosen environment and links directly to the markdown export route.
+
+Direct export example:
+
+```bash
+curl -sS \
+  "http://127.0.0.1:3100/v1/organizations/<buyer_org_id>/compliance/dpa-export?actorUserId=<buyer_finance_user_id>&environment=development"
+```
 
 ## Local quality gates
 

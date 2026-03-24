@@ -7,7 +7,7 @@
     "dev": "next dev",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --coverage",
+    "test": "node ./scripts/runVitest.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

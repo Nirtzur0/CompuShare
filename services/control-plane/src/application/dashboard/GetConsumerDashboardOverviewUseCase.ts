@@ -4,15 +4,23 @@ import { OrganizationId } from "../../domain/identity/OrganizationId.js";
 import { canViewConsumerDashboard } from "../../domain/identity/OrganizationRole.js";
 import { UserId } from "../../domain/identity/UserId.js";
 import type { AccountCapability } from "../../domain/identity/AccountCapability.js";
+import { parseOrganizationApiKeyEnvironment } from "../../domain/identity/OrganizationApiKeyEnvironment.js";
 import type { ConsumerDashboardRepository } from "./ports/ConsumerDashboardRepository.js";
+import { GatewayTrafficPolicy } from "../../config/GatewayTrafficPolicy.js";
 
 export interface GetConsumerDashboardOverviewRequest {
   organizationId: string;
   actorUserId: string;
+  environment: "development" | "staging" | "production";
 }
 
 export interface GetConsumerDashboardOverviewResponse {
   overview: ReturnType<ConsumerDashboardOverview["toSnapshot"]>;
+}
+
+export interface GetConsumerDashboardOverviewUseCaseOptions {
+  clock?: () => Date;
+  gatewayTrafficPolicy?: GatewayTrafficPolicy;
 }
 
 export class ConsumerDashboardOrganizationNotFoundError extends Error {
@@ -41,11 +49,45 @@ export class ConsumerDashboardAuthorizationError extends Error {
 }
 
 export class GetConsumerDashboardOverviewUseCase {
+  private readonly repository: ConsumerDashboardRepository;
+  private readonly auditLog: AuditLog;
+  private readonly clock: () => Date;
+  private readonly gatewayTrafficPolicy: GatewayTrafficPolicy;
+
   public constructor(
-    private readonly repository: ConsumerDashboardRepository,
-    private readonly auditLog: AuditLog,
-    private readonly clock: () => Date = () => new Date()
-  ) {}
+    repository: ConsumerDashboardRepository,
+    auditLog: AuditLog,
+    options?: GetConsumerDashboardOverviewUseCaseOptions
+  );
+  public constructor(
+    repository: ConsumerDashboardRepository,
+    auditLog: AuditLog,
+    clock?: () => Date,
+    gatewayTrafficPolicy?: GatewayTrafficPolicy
+  );
+  public constructor(
+    repository: ConsumerDashboardRepository,
+    auditLog: AuditLog,
+    optionsOrClock:
+      | GetConsumerDashboardOverviewUseCaseOptions
+      | (() => Date)
+      | undefined,
+    gatewayTrafficPolicy?: GatewayTrafficPolicy
+  ) {
+    this.repository = repository;
+    this.auditLog = auditLog;
+    const options =
+      typeof optionsOrClock === "function"
+        ? {
+            clock: optionsOrClock,
+            gatewayTrafficPolicy
+          }
+        : (optionsOrClock ?? {});
+
+    this.clock = options.clock ?? (() => new Date());
+    this.gatewayTrafficPolicy =
+      options.gatewayTrafficPolicy ?? GatewayTrafficPolicy.createDefault();
+  }
 
   public async execute(
     request: GetConsumerDashboardOverviewRequest
@@ -53,6 +95,7 @@ export class GetConsumerDashboardOverviewUseCase {
     const viewedAt = this.clock();
     const organizationId = OrganizationId.create(request.organizationId);
     const actorUserId = UserId.create(request.actorUserId);
+    const environment = parseOrganizationApiKeyEnvironment(request.environment);
     const capabilities =
       await this.repository.findOrganizationAccountCapabilities(organizationId);
 
@@ -93,6 +136,20 @@ export class GetConsumerDashboardOverviewUseCase {
       startDateInclusive: trendWindow.startDateInclusive,
       endDateExclusive: trendWindow.endDateExclusive
     });
+    const gatewayQuotaStatus =
+      await this.repository.getGatewayUsageQuotaSnapshot({
+        organizationId,
+        environment,
+        asOf: viewedAt,
+        fixedDayTokenLimit:
+          this.gatewayTrafficPolicy
+            .fixedDayTokenQuotaPerOrganizationEnvironment,
+        syncRequestsPerMinutePerApiKey:
+          this.gatewayTrafficPolicy.syncRequestsPerMinutePerApiKey,
+        maxBatchItemsPerJob: this.gatewayTrafficPolicy.maxBatchItemsPerJob,
+        maxActiveBatchesPerOrganizationEnvironment:
+          this.gatewayTrafficPolicy.maxActiveBatchesPerOrganizationEnvironment
+      });
     const overview = ConsumerDashboardOverview.create({
       organizationId: organizationId.value,
       actorRole: actorMembership.role,
@@ -102,7 +159,8 @@ export class GetConsumerDashboardOverviewUseCase {
         dates: trendWindow.dates,
         usageTrend
       }),
-      latencyByModel: [...latencyByModel]
+      latencyByModel: [...latencyByModel],
+      gatewayQuotaStatus
     });
     const snapshot = overview.toSnapshot();
 
@@ -115,7 +173,10 @@ export class GetConsumerDashboardOverviewUseCase {
         lifetimeFundedUsd: snapshot.spendSummary.lifetimeFundedUsd,
         lifetimeSettledSpendUsd: snapshot.spendSummary.lifetimeSettledSpendUsd,
         usageBalanceUsd: snapshot.balances.usageBalanceUsd,
-        spendCreditsUsd: snapshot.balances.spendCreditsUsd
+        spendCreditsUsd: snapshot.balances.spendCreditsUsd,
+        gatewayQuotaEnvironment: snapshot.gatewayQuotaStatus.environment,
+        gatewayQuotaRemainingTokens:
+          snapshot.gatewayQuotaStatus.fixedDayRemainingTokens
       }
     });
 

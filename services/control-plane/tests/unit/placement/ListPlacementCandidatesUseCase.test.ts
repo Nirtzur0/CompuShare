@@ -28,6 +28,15 @@ class InMemoryPlacementCandidateRepository implements PlacementCandidateReposito
   > {
     return Promise.resolve(this.summaries);
   }
+
+  public listRecentLostDisputeCountsByProviderOrganization(): Promise<
+    readonly {
+      providerOrganizationId: string;
+      lostDisputeCount: number;
+    }[]
+  > {
+    return Promise.resolve([]);
+  }
 }
 
 describe("ListPlacementCandidatesUseCase", () => {

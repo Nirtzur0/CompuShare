@@ -1,24 +1,34 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import multipart from "@fastify/multipart";
 import fastifyRawBody from "fastify-raw-body";
+import type { GenerateDpaExportUseCase } from "../../application/compliance/GenerateDpaExportUseCase.js";
+import type { GetSubprocessorRegistryUseCase } from "../../application/compliance/GetSubprocessorRegistryUseCase.js";
 import type { CancelGatewayBatchUseCase } from "../../application/batch/CancelGatewayBatchUseCase.js";
 import type { CreateGatewayBatchUseCase } from "../../application/batch/CreateGatewayBatchUseCase.js";
 import type { GetGatewayBatchUseCase } from "../../application/batch/GetGatewayBatchUseCase.js";
 import type { GetGatewayFileUseCase } from "../../application/batch/GetGatewayFileUseCase.js";
 import type { UploadGatewayFileUseCase } from "../../application/batch/UploadGatewayFileUseCase.js";
+import type { GetComplianceOverviewUseCase } from "../../application/dashboard/GetComplianceOverviewUseCase.js";
+import type { GetConsumerDisputeDashboardUseCase } from "../../application/dashboard/GetConsumerDisputeDashboardUseCase.js";
 import type { GetConsumerDashboardOverviewUseCase } from "../../application/dashboard/GetConsumerDashboardOverviewUseCase.js";
 import type { GetPrivateConnectorDashboardUseCase } from "../../application/dashboard/GetPrivateConnectorDashboardUseCase.js";
 import type { GetProviderDashboardOverviewUseCase } from "../../application/dashboard/GetProviderDashboardOverviewUseCase.js";
+import type { GetProviderDisputeDashboardUseCase } from "../../application/dashboard/GetProviderDisputeDashboardUseCase.js";
 import type { GetProviderPricingSimulatorUseCase } from "../../application/dashboard/GetProviderPricingSimulatorUseCase.js";
+import type { CreateProviderDisputeUseCase } from "../../application/dispute/CreateProviderDisputeUseCase.js";
 import type { GetFraudReviewAlertsUseCase } from "../../application/fraud/GetFraudReviewAlertsUseCase.js";
 import type { GetOrganizationWalletSummaryUseCase } from "../../application/ledger/GetOrganizationWalletSummaryUseCase.js";
 import type { GetStagedPayoutExportUseCase } from "../../application/ledger/GetStagedPayoutExportUseCase.js";
 import type { GetProviderPayoutAccountStatusUseCase } from "../../application/payout/GetProviderPayoutAccountStatusUseCase.js";
 import type { GetProviderPayoutAvailabilityUseCase } from "../../application/payout/GetProviderPayoutAvailabilityUseCase.js";
 import type { IssueProviderPayoutOnboardingLinkUseCase } from "../../application/payout/IssueProviderPayoutOnboardingLinkUseCase.js";
+import type { ListProviderDisputesUseCase } from "../../application/dispute/ListProviderDisputesUseCase.js";
+import type { ProcessStripeDisputeWebhookUseCase } from "../../application/dispute/ProcessStripeDisputeWebhookUseCase.js";
 import type { ProcessStripeConnectWebhookUseCase } from "../../application/payout/ProcessStripeConnectWebhookUseCase.js";
+import type { RecordProviderDisputeAllocationsUseCase } from "../../application/dispute/RecordProviderDisputeAllocationsUseCase.js";
 import type { RecordCompletedJobSettlementUseCase } from "../../application/ledger/RecordCompletedJobSettlementUseCase.js";
 import type { RecordCustomerChargeUseCase } from "../../application/ledger/RecordCustomerChargeUseCase.js";
+import type { TransitionProviderDisputeStatusUseCase } from "../../application/dispute/TransitionProviderDisputeStatusUseCase.js";
 import type { AuthenticateOrganizationApiKeyUseCase } from "../../application/identity/AuthenticateOrganizationApiKeyUseCase.js";
 import type { AcceptOrganizationInvitationUseCase } from "../../application/identity/AcceptOrganizationInvitationUseCase.js";
 import type { CreateOrganizationUseCase } from "../../application/identity/CreateOrganizationUseCase.js";
@@ -44,6 +54,7 @@ import type { SubmitProviderNodeAttestationUseCase } from "../../application/pro
 import type { ReplaceProviderNodeRoutingStateUseCase } from "../../application/provider/ReplaceProviderNodeRoutingStateUseCase.js";
 import type { UpsertProviderNodeRoutingProfileUseCase } from "../../application/provider/UpsertProviderNodeRoutingProfileUseCase.js";
 import { registerBatchRoutes } from "./batchRoutes.js";
+import { registerComplianceRoutes } from "./complianceRoutes.js";
 import { registerDashboardRoutes } from "./dashboardRoutes.js";
 import { registerFileRoutes } from "./fileRoutes.js";
 import { registerFinanceRoutes } from "./financeRoutes.js";
@@ -100,16 +111,41 @@ export function buildApp(dependencies: {
     GetProviderPayoutAvailabilityUseCase,
     "execute"
   >;
+  createProviderDisputeUseCase?: Pick<CreateProviderDisputeUseCase, "execute">;
+  listProviderDisputesUseCase?: Pick<ListProviderDisputesUseCase, "execute">;
+  recordProviderDisputeAllocationsUseCase?: Pick<
+    RecordProviderDisputeAllocationsUseCase,
+    "execute"
+  >;
+  transitionProviderDisputeStatusUseCase?: Pick<
+    TransitionProviderDisputeStatusUseCase,
+    "execute"
+  >;
   processStripeConnectWebhookUseCase?: Pick<
     ProcessStripeConnectWebhookUseCase,
+    "execute"
+  >;
+  processStripeDisputeWebhookUseCase?: Pick<
+    ProcessStripeDisputeWebhookUseCase,
+    "execute"
+  >;
+  getConsumerDisputeDashboardUseCase?: Pick<
+    GetConsumerDisputeDashboardUseCase,
     "execute"
   >;
   getConsumerDashboardOverviewUseCase: Pick<
     GetConsumerDashboardOverviewUseCase,
     "execute"
   >;
+  getComplianceOverviewUseCase?: Pick<GetComplianceOverviewUseCase, "execute">;
+  getSubprocessorRegistryUseCase?: Pick<GetSubprocessorRegistryUseCase, "execute">;
+  generateDpaExportUseCase?: Pick<GenerateDpaExportUseCase, "execute">;
   getProviderDashboardOverviewUseCase: Pick<
     GetProviderDashboardOverviewUseCase,
+    "execute"
+  >;
+  getProviderDisputeDashboardUseCase?: Pick<
+    GetProviderDisputeDashboardUseCase,
     "execute"
   >;
   getPrivateConnectorDashboardUseCase?: Pick<
@@ -205,21 +241,42 @@ export function buildApp(dependencies: {
     dependencies.getOrganizationWalletSummaryUseCase,
     dependencies.issueProviderPayoutOnboardingLinkUseCase,
     dependencies.getProviderPayoutAccountStatusUseCase,
-    dependencies.getProviderPayoutAvailabilityUseCase
+    dependencies.getProviderPayoutAvailabilityUseCase,
+    dependencies.createProviderDisputeUseCase,
+    dependencies.listProviderDisputesUseCase,
+    dependencies.recordProviderDisputeAllocationsUseCase,
+    dependencies.transitionProviderDisputeStatusUseCase
   );
-  if (dependencies.processStripeConnectWebhookUseCase !== undefined) {
+  if (
+    dependencies.processStripeConnectWebhookUseCase !== undefined ||
+    dependencies.processStripeDisputeWebhookUseCase !== undefined
+  ) {
     registerStripeWebhookRoutes(
       app,
-      dependencies.processStripeConnectWebhookUseCase
+      dependencies.processStripeConnectWebhookUseCase,
+      dependencies.processStripeDisputeWebhookUseCase
     );
   }
   registerDashboardRoutes(
     app,
+    dependencies.getComplianceOverviewUseCase,
+    dependencies.getConsumerDisputeDashboardUseCase,
     dependencies.getConsumerDashboardOverviewUseCase,
     dependencies.getProviderDashboardOverviewUseCase,
+    dependencies.getProviderDisputeDashboardUseCase,
     dependencies.getPrivateConnectorDashboardUseCase,
     dependencies.getProviderPricingSimulatorUseCase
   );
+  if (
+    dependencies.getSubprocessorRegistryUseCase !== undefined &&
+    dependencies.generateDpaExportUseCase !== undefined
+  ) {
+    registerComplianceRoutes(
+      app,
+      dependencies.getSubprocessorRegistryUseCase,
+      dependencies.generateDpaExportUseCase
+    );
+  }
   if (dependencies.getFraudReviewAlertsUseCase !== undefined) {
     registerRiskRoutes(app, dependencies.getFraudReviewAlertsUseCase);
   }

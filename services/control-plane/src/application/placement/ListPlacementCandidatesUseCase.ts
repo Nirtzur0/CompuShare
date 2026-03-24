@@ -41,7 +41,8 @@ export class ListPlacementCandidatesUseCase {
     private readonly repository: PlacementCandidateRepository,
     private readonly planner: PlacementCandidatePlanner = new PlacementCandidatePlanner(
       PlacementScoringPolicy.createDefault()
-    )
+    ),
+    private readonly clock: () => Date = () => new Date()
   ) {}
 
   public async execute(
@@ -66,9 +67,21 @@ export class ListPlacementCandidatesUseCase {
       minimumTrustTier: request.minimumTrustTier,
       maxPriceUsdPerHour: request.maxPriceUsdPerHour
     });
+    const lostDisputeCounts =
+      await this.repository.listRecentLostDisputeCountsByProviderOrganization({
+        lostSinceInclusive: new Date(
+          this.clock().getTime() - 90 * 24 * 60 * 60 * 1000
+        )
+      });
     const candidates = this.planner.buildCandidates(
       requirements,
       await this.repository.listPlacementProviderInventorySummaries(),
+      new Map(
+        lostDisputeCounts.map((entry) => [
+          entry.providerOrganizationId,
+          entry.lostDisputeCount
+        ])
+      ),
       request.approvedModelAlias
     );
 

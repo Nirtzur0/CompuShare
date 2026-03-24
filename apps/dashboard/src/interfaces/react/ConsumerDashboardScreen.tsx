@@ -74,6 +74,48 @@ export function ConsumerDashboardScreen(props: ConsumerDashboardScreenProps) {
         ))}
       </section>
 
+      <section className="card-grid">
+        <article className="card warning">
+          <p className="card-label">Daily token quota used</p>
+          <p className="card-value">
+            {props.overview.gatewayQuotaStatus.fixedDayUsedTokens.toLocaleString()}
+          </p>
+          <p className="card-caption">
+            {props.overview.gatewayQuotaStatus.environment} resets at{" "}
+            {new Date(
+              props.overview.gatewayQuotaStatus.fixedDayResetsAt,
+            ).toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "UTC",
+            })}{" "}
+            UTC.
+          </p>
+        </article>
+        <article className="card success">
+          <p className="card-label">Daily token quota remaining</p>
+          <p className="card-value">
+            {props.overview.gatewayQuotaStatus.fixedDayRemainingTokens.toLocaleString()}
+          </p>
+          <p className="card-caption">
+            Limit {props.overview.gatewayQuotaStatus.fixedDayTokenLimit.toLocaleString()}{" "}
+            tokens per UTC day.
+          </p>
+        </article>
+        <article className="card neutral">
+          <p className="card-label">Sync request rate limit</p>
+          <p className="card-value">
+            {props.overview.gatewayQuotaStatus.syncRequestsPerMinutePerApiKey}/min
+          </p>
+          <p className="card-caption">
+            Batch caps: {props.overview.gatewayQuotaStatus.maxBatchItemsPerJob} items
+            per job and{" "}
+            {props.overview.gatewayQuotaStatus.maxActiveBatchesPerOrganizationEnvironment}{" "}
+            active batches.
+          </p>
+        </article>
+      </section>
+
       <section className="inventory-panel">
         <div className="inventory-header">
           <div>

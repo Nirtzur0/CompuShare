@@ -30,6 +30,7 @@ describe("PlacementCandidatePlanner", () => {
           warmAliasExpiresAt: "2026-03-10T10:10:00.000Z"
         })
       ],
+      new Map(),
       "openai/gpt-oss-120b-like"
     );
 
@@ -63,6 +64,7 @@ describe("PlacementCandidatePlanner", () => {
           warmAliasExpiresAt: "2026-03-10T10:01:00.000Z"
         })
       ],
+      new Map(),
       "openai/gpt-oss-120b-like"
     );
 
@@ -122,7 +124,7 @@ describe("PlacementCandidatePlanner", () => {
         }),
         null
       )
-    ]);
+    ], new Map());
 
     expect(candidates).toHaveLength(1);
     expect(candidates[0]?.providerNodeLabel).toBe("Healthy benchmarked");
@@ -147,12 +149,47 @@ describe("PlacementCandidatePlanner", () => {
         throughputTokensPerSecond: 720,
         priceFloorUsdPerHour: 9
       })
-    ]);
+    ], new Map());
 
     expect(candidates.map((candidate) => candidate.providerNodeLabel)).toEqual([
       "Lower price",
       "Higher price"
     ]);
+  });
+
+  it("applies the lost-dispute penalty before final ordering", () => {
+    const planner = new PlacementCandidatePlanner(
+      PlacementScoringPolicy.createDefault(),
+      () => new Date("2026-03-10T10:00:00.000Z")
+    );
+
+    const candidates = planner.buildCandidates(
+      createRequirements(),
+      [
+        createSummary({
+          providerNodeId: "b1c6255a-8bd1-4380-8579-f90c837e0a20",
+          organizationId: "11111111-cd17-40fd-b66d-8b05eff10d9c",
+          label: "Penalty-free",
+          throughputTokensPerSecond: 640,
+          priceFloorUsdPerHour: 8
+        }),
+        createSummary({
+          providerNodeId: "a1c6255a-8bd1-4380-8579-f90c837e0a20",
+          organizationId: "d8d5e60c-cd17-40fd-b66d-8b05eff10d9c",
+          label: "Penalty-hit",
+          throughputTokensPerSecond: 720,
+          priceFloorUsdPerHour: 8
+        })
+      ],
+      new Map([
+        ["d8d5e60c-cd17-40fd-b66d-8b05eff10d9c", 3]
+      ])
+    );
+
+    expect(candidates[0]?.providerNodeLabel).toBe("Penalty-free");
+    expect(candidates[1]?.providerNodeLabel).toBe("Penalty-hit");
+    expect(candidates[1]?.disputePenaltyMultiplier).toBe(0.7);
+    expect(candidates[1]?.lostDisputeCount90d).toBe(3);
   });
 });
 
@@ -168,6 +205,7 @@ function createRequirements(): PlacementRequirements {
 
 function createSummary(input: {
   providerNodeId: string;
+  organizationId?: string;
   label: string;
   throughputTokensPerSecond: number;
   priceFloorUsdPerHour: number;
@@ -177,7 +215,8 @@ function createSummary(input: {
   return new ProviderInventorySummary(
     ProviderNode.rehydrate({
       id: input.providerNodeId,
-      organizationId: "d8d5e60c-cd17-40fd-b66d-8b05eff10d9c",
+      organizationId:
+        input.organizationId ?? "d8d5e60c-cd17-40fd-b66d-8b05eff10d9c",
       machineId: `${input.providerNodeId}-machine`,
       label: input.label,
       runtime: "linux",

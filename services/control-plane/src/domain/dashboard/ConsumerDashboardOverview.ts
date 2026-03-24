@@ -1,6 +1,7 @@
 import type { OrganizationRole } from "../identity/OrganizationRole.js";
 import type { OrganizationWalletSummarySnapshot } from "../ledger/OrganizationWalletSummary.js";
 import type { ConsumerSpendSummarySnapshot } from "./ConsumerSpendSummary.js";
+import type { GatewayUsageQuotaSnapshot } from "../../application/gateway/ports/GatewayUsageAdmissionRepository.js";
 
 export interface ConsumerDashboardOverviewSnapshot {
   organizationId: string;
@@ -19,6 +20,7 @@ export interface ConsumerDashboardOverviewSnapshot {
     p95LatencyMs: number;
     totalTokens: number;
   }[];
+  gatewayQuotaStatus: GatewayUsageQuotaSnapshot;
 }
 
 export class ConsumerDashboardOverview {
@@ -43,6 +45,7 @@ export class ConsumerDashboardOverview {
       p95LatencyMs: number;
       totalTokens: number;
     }[];
+    gatewayQuotaStatus: GatewayUsageQuotaSnapshot;
   }): ConsumerDashboardOverview {
     return new ConsumerDashboardOverview({
       organizationId: input.organizationId,
@@ -50,7 +53,8 @@ export class ConsumerDashboardOverview {
       spendSummary: input.spendSummary,
       balances: input.balances,
       usageTrend: input.usageTrend,
-      latencyByModel: input.latencyByModel
+      latencyByModel: input.latencyByModel,
+      gatewayQuotaStatus: input.gatewayQuotaStatus
     });
   }
 
@@ -67,7 +71,10 @@ export class ConsumerDashboardOverview {
       usageTrend: this.snapshot.usageTrend.map((point) => ({ ...point })),
       latencyByModel: this.snapshot.latencyByModel.map((point) => ({
         ...point
-      }))
+      })),
+      gatewayQuotaStatus: {
+        ...this.snapshot.gatewayQuotaStatus
+      }
     };
   }
 }

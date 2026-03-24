@@ -44,5 +44,5 @@ export default async function ProviderPage(input: ProviderPageProps) {
     actorUserId,
   });
 
-  return <ProviderDashboardScreen overview={overview} />;
+  return <ProviderDashboardScreen overview={overview} actorUserId={actorUserId} />;
 }

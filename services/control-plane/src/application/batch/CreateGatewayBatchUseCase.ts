@@ -3,16 +3,74 @@ import type { AuthenticateGatewayApiKeyUseCase } from "../identity/AuthenticateG
 import { GatewayBatchJob } from "../../domain/batch/GatewayBatchJob.js";
 import { GatewayBatchJobItem } from "../../domain/batch/GatewayBatchJobItem.js";
 import { GatewayFile } from "../../domain/batch/GatewayFile.js";
+import { GatewayTrafficPolicy } from "../../config/GatewayTrafficPolicy.js";
 import { GatewayFileNotFoundError } from "./GetGatewayFileUseCase.js";
 import type { GatewayBatchRepository } from "./ports/GatewayBatchRepository.js";
+import { OrganizationId } from "../../domain/identity/OrganizationId.js";
+
+export class GatewayActiveBatchLimitExceededError extends Error {
+  public constructor(limit: number) {
+    super(
+      `Gateway batch creation is limited to ${String(limit)} active batches per organization and environment.`
+    );
+    this.name = "GatewayActiveBatchLimitExceededError";
+  }
+}
+
+export class GatewayBatchItemLimitExceededError extends Error {
+  public constructor(limit: number) {
+    super(`Gateway batch jobs may not exceed ${String(limit)} items.`);
+    this.name = "GatewayBatchItemLimitExceededError";
+  }
+}
+
+export interface CreateGatewayBatchUseCaseOptions {
+  clock?: () => Date;
+  gatewayTrafficPolicy?: GatewayTrafficPolicy;
+}
 
 export class CreateGatewayBatchUseCase {
+  private readonly authenticateGatewayApiKeyUseCase: AuthenticateGatewayApiKeyUseCase;
+  private readonly repository: GatewayBatchRepository;
+  private readonly auditLog: AuditLog;
+  private readonly clock: () => Date;
+  private readonly gatewayTrafficPolicy: GatewayTrafficPolicy;
+
   public constructor(
-    private readonly authenticateGatewayApiKeyUseCase: AuthenticateGatewayApiKeyUseCase,
-    private readonly repository: GatewayBatchRepository,
-    private readonly auditLog: AuditLog,
-    private readonly clock: () => Date = () => new Date()
-  ) {}
+    authenticateGatewayApiKeyUseCase: AuthenticateGatewayApiKeyUseCase,
+    repository: GatewayBatchRepository,
+    auditLog: AuditLog,
+    options?: CreateGatewayBatchUseCaseOptions
+  );
+  public constructor(
+    authenticateGatewayApiKeyUseCase: AuthenticateGatewayApiKeyUseCase,
+    repository: GatewayBatchRepository,
+    auditLog: AuditLog,
+    clock?: () => Date,
+    gatewayTrafficPolicy?: GatewayTrafficPolicy
+  );
+  public constructor(
+    authenticateGatewayApiKeyUseCase: AuthenticateGatewayApiKeyUseCase,
+    repository: GatewayBatchRepository,
+    auditLog: AuditLog,
+    optionsOrClock: CreateGatewayBatchUseCaseOptions | (() => Date) | undefined,
+    gatewayTrafficPolicy?: GatewayTrafficPolicy
+  ) {
+    this.authenticateGatewayApiKeyUseCase = authenticateGatewayApiKeyUseCase;
+    this.repository = repository;
+    this.auditLog = auditLog;
+    const options =
+      typeof optionsOrClock === "function"
+        ? {
+            clock: optionsOrClock,
+            gatewayTrafficPolicy
+          }
+        : (optionsOrClock ?? {});
+
+    this.clock = options.clock ?? (() => new Date());
+    this.gatewayTrafficPolicy =
+      options.gatewayTrafficPolicy ?? GatewayTrafficPolicy.createDefault();
+  }
 
   public async execute(input: {
     authorizationHeader: string;
@@ -36,6 +94,57 @@ export class CreateGatewayBatchUseCase {
     const parsedItems = this.parseBatchItems(file, input.endpoint);
     const requestCountTotal =
       "errorBody" in parsedItems ? 0 : parsedItems.length;
+
+    if (!("errorBody" in parsedItems)) {
+      if (parsedItems.length > this.gatewayTrafficPolicy.maxBatchItemsPerJob) {
+        await this.auditLog.record({
+          eventName: "gateway.batch_ingress.rejected",
+          occurredAt: occurredAt.toISOString(),
+          actorUserId: authentication.apiKey.issuedByUserId,
+          organizationId: authentication.scope.organizationId,
+          metadata: {
+            endpoint: input.endpoint,
+            reason: "max_batch_items",
+            attemptedItemCount: parsedItems.length,
+            limit: this.gatewayTrafficPolicy.maxBatchItemsPerJob
+          }
+        });
+        throw new GatewayBatchItemLimitExceededError(
+          this.gatewayTrafficPolicy.maxBatchItemsPerJob
+        );
+      }
+
+      const activeBatchCount = await this.repository.countActiveGatewayBatches({
+        organizationId: OrganizationId.create(
+          authentication.scope.organizationId
+        ),
+        environment: authentication.scope.environment
+      });
+
+      if (
+        activeBatchCount >=
+        this.gatewayTrafficPolicy.maxActiveBatchesPerOrganizationEnvironment
+      ) {
+        await this.auditLog.record({
+          eventName: "gateway.batch_ingress.rejected",
+          occurredAt: occurredAt.toISOString(),
+          actorUserId: authentication.apiKey.issuedByUserId,
+          organizationId: authentication.scope.organizationId,
+          metadata: {
+            endpoint: input.endpoint,
+            reason: "active_batch_limit",
+            activeBatchCount,
+            limit:
+              this.gatewayTrafficPolicy
+                .maxActiveBatchesPerOrganizationEnvironment
+          }
+        });
+        throw new GatewayActiveBatchLimitExceededError(
+          this.gatewayTrafficPolicy.maxActiveBatchesPerOrganizationEnvironment
+        );
+      }
+    }
+
     const batch = GatewayBatchJob.create({
       organizationId: authentication.scope.organizationId,
       environment: authentication.scope.environment,

@@ -227,7 +227,7 @@ describe("consumer dashboard overview route", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: `/v1/organizations/${buyerOrganizationId}/dashboard/consumer-overview?actorUserId=${financeUserId}`
+      url: `/v1/organizations/${buyerOrganizationId}/dashboard/consumer-overview?actorUserId=${financeUserId}&environment=development`
     });
 
     expect(response.statusCode).toBe(200);
@@ -245,6 +245,15 @@ describe("consumer dashboard overview route", () => {
           spendCreditsUsd: "0.00",
           pendingEarningsUsd: "0.00",
           withdrawableCashUsd: "0.00"
+        },
+        gatewayQuotaStatus: {
+          environment: "development",
+          fixedDayTokenLimit: 2000000,
+          fixedDayUsedTokens: 0,
+          fixedDayRemainingTokens: 2000000,
+          syncRequestsPerMinutePerApiKey: 60,
+          maxBatchItemsPerJob: 500,
+          maxActiveBatchesPerOrganizationEnvironment: 5
         }
       }
     });

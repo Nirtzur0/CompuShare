@@ -12,6 +12,7 @@ import type { OrganizationId } from "../../../src/domain/identity/OrganizationId
 import type { UserId } from "../../../src/domain/identity/UserId.js";
 import { ProviderPayoutDisbursement } from "../../../src/domain/payout/ProviderPayoutDisbursement.js";
 import type { ProviderPayoutRun } from "../../../src/domain/payout/ProviderPayoutRun.js";
+import { UsdAmount } from "../../../src/domain/ledger/UsdAmount.js";
 import { OrganizationWalletSummary } from "../../../src/domain/ledger/OrganizationWalletSummary.js";
 import { OrganizationMember } from "../../../src/domain/identity/OrganizationMember.js";
 import { GetProviderPayoutAvailabilityUseCase } from "../../../src/application/payout/GetProviderPayoutAvailabilityUseCase.js";
@@ -44,6 +45,7 @@ class InMemoryProviderPayoutRepository implements ProviderPayoutRepository {
   public readonly payoutRuns = new Map<string, ProviderPayoutRun>();
   public readonly disbursements = new Map<string, ProviderPayoutDisbursement>();
   public readonly webhookReceipts = new Set<string>();
+  public readonly activeDisputeHolds = new Map<string, number>();
 
   public async findOrganizationAccountCapabilities(
     organizationId: OrganizationId
@@ -122,6 +124,8 @@ class InMemoryProviderPayoutRepository implements ProviderPayoutRepository {
         (left, right) => right.updatedAt.getTime() - left.updatedAt.getTime()
       );
     const reserved = relevant.reduce((sum, item) => sum + item.amount.cents, 0);
+    const activeDisputeHold =
+      this.activeDisputeHolds.get(organizationId.value) ?? 0;
 
     return (
       await import("../../../src/domain/payout/ProviderPayoutAvailability.js")
@@ -133,13 +137,24 @@ class InMemoryProviderPayoutRepository implements ProviderPayoutRepository {
         0
       ),
       withdrawableCashCents: wallet.withdrawableCash.cents,
+      activeDisputeHoldCents: activeDisputeHold,
       eligiblePayoutCents: Math.max(
-        wallet.withdrawableCash.cents - reserved,
+        wallet.withdrawableCash.cents - reserved - activeDisputeHold,
         0
       ),
       lastPayoutAt: relevant[0]?.updatedAt ?? null,
       lastPayoutStatus: relevant[0]?.status ?? "none"
     });
+  }
+
+  public async getActiveProviderDisputeHold(
+    providerOrganizationId: OrganizationId
+  ): Promise<UsdAmount> {
+    return await Promise.resolve(
+      UsdAmount.createFromCents(
+        this.activeDisputeHolds.get(providerOrganizationId.value) ?? 0
+      )
+    );
   }
 
   public async createProviderPayoutRun(run: ProviderPayoutRun): Promise<void> {
@@ -336,6 +351,7 @@ describe("provider payout use cases", () => {
 
     expect(response.payoutAvailability).toMatchObject({
       withdrawableCashUsd: "40.00",
+      activeDisputeHoldUsd: "0.00",
       eligiblePayoutUsd: "25.00",
       reserveHoldbackUsd: "10.00",
       lastPayoutStatus: "pending"

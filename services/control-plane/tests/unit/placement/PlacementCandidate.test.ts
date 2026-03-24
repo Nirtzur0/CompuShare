@@ -39,6 +39,8 @@ describe("PlacementCandidate", () => {
         score: 74.25,
         pricePerformanceScore: 74.25,
         warmCacheMultiplier: 1,
+        disputePenaltyMultiplier: 1,
+        lostDisputeCount90d: 0,
         warmCacheExpiresAt: null,
         matchedGpu: {
           model: "NVIDIA A100",

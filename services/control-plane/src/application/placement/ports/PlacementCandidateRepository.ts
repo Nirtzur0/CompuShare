@@ -9,4 +9,12 @@ export interface PlacementCandidateRepository {
   listPlacementProviderInventorySummaries(): Promise<
     readonly ProviderInventorySummary[]
   >;
+  listRecentLostDisputeCountsByProviderOrganization(input: {
+    lostSinceInclusive: Date;
+  }): Promise<
+    readonly {
+      providerOrganizationId: string;
+      lostDisputeCount: number;
+    }[]
+  >;
 }

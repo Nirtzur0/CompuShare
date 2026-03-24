@@ -156,9 +156,86 @@ h2 {
   line-height: 1;
 }
 
+.operations-card-value {
+  font-size: 1.1rem;
+  line-height: 1.4;
+}
+
 .inventory-panel {
   margin-top: 1rem;
   padding: 1.4rem;
+}
+
+.landing-link-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.landing-link-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 1.2rem;
+  background: rgba(255, 255, 255, 0.6);
+  color: inherit;
+  text-decoration: none;
+}
+
+.landing-link-card span {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.dispute-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.dispute-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 1.35rem;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.dispute-card-header {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: start;
+}
+
+.dispute-card-header h3 {
+  margin: 0;
+}
+
+.dispute-metadata-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dispute-metadata-grid ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1rem;
+  color: var(--muted);
+}
+
+.operations-surface-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.dispute-inline-form {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
 }
 
 .pricing-history-note h2 {
@@ -532,7 +609,8 @@ h2 {
   .trend-grid,
   .inventory-header,
   .card-grid,
-  .node-row {
+  .node-row,
+  .landing-link-grid {
     grid-template-columns: 1fr;
   }
 

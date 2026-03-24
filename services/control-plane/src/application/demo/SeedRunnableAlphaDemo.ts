@@ -26,6 +26,8 @@ export interface SeedRunnableAlphaDemoResponse {
   controlPlaneBaseUrl: string;
   providerRuntimeBaseUrl: string;
   dashboardBaseUrl: string;
+  operationsUrl: string;
+  publicSubprocessorsUrl: string;
   gatewayDemo: {
     gatewayUrl: string;
     modelAlias: string;
@@ -51,7 +53,10 @@ export interface SeedRunnableAlphaDemoResponse {
     organizationSlug: string;
     actorUserId: string;
     dashboardUrl: string;
+    disputesDashboardUrl: string;
     privateConnectorDashboardUrl: string;
+    complianceDashboardUrl: string;
+    complianceExportCurlCommand: string;
     privateConnectorCurlCommand: string;
     apiKey: {
       id: string;
@@ -71,6 +76,7 @@ export interface SeedRunnableAlphaDemoResponse {
     organizationSlug: string;
     actorUserId: string;
     dashboardUrl: string;
+    disputesDashboardUrl: string;
     pricingDashboardUrl: string;
     apiKey: {
       id: string;
@@ -313,7 +319,11 @@ export class SeedRunnableAlphaDemo {
     const consumerOverview =
       await this.getConsumerDashboardOverviewUseCase.execute({
         organizationId: buyerOrganization.organization.id,
-        actorUserId: buyerOrganization.founder.userId
+        actorUserId: buyerOrganization.founder.userId,
+        environment: buyerApiKey.apiKey.environment as
+          | "development"
+          | "staging"
+          | "production"
       });
     const providerOverview =
       await this.getProviderDashboardOverviewUseCase.execute({
@@ -327,6 +337,11 @@ export class SeedRunnableAlphaDemo {
       controlPlaneBaseUrl: request.controlPlaneBaseUrl,
       providerRuntimeBaseUrl: request.providerRuntimeBaseUrl,
       dashboardBaseUrl: request.dashboardBaseUrl,
+      operationsUrl: new URL("/operations", request.dashboardBaseUrl).toString(),
+      publicSubprocessorsUrl: new URL(
+        "/subprocessors",
+        request.dashboardBaseUrl
+      ).toString(),
       gatewayDemo: {
         gatewayUrl: new URL(
           "/v1/chat/completions",
@@ -361,6 +376,13 @@ export class SeedRunnableAlphaDemo {
           baseUrl: request.dashboardBaseUrl,
           pathname: "/consumer",
           organizationId: buyerOrganization.organization.id,
+          actorUserId: buyerOrganization.founder.userId,
+          environment: buyerApiKey.apiKey.environment
+        }),
+        disputesDashboardUrl: this.buildDashboardUrl({
+          baseUrl: request.dashboardBaseUrl,
+          pathname: "/consumer/disputes",
+          organizationId: buyerOrganization.organization.id,
           actorUserId: buyerOrganization.founder.userId
         }),
         privateConnectorDashboardUrl: this.buildDashboardUrl({
@@ -368,6 +390,19 @@ export class SeedRunnableAlphaDemo {
           pathname: "/consumer/private-connectors",
           organizationId: buyerOrganization.organization.id,
           actorUserId: buyerOrganization.founder.userId
+        }),
+        complianceDashboardUrl: this.buildDashboardUrl({
+          baseUrl: request.dashboardBaseUrl,
+          pathname: "/consumer/compliance",
+          organizationId: buyerOrganization.organization.id,
+          actorUserId: buyerOrganization.founder.userId,
+          environment: buyerApiKey.apiKey.environment
+        }),
+        complianceExportCurlCommand: this.buildComplianceExportCurlCommand({
+          controlPlaneBaseUrl: request.controlPlaneBaseUrl,
+          organizationId: buyerOrganization.organization.id,
+          actorUserId: buyerOrganization.founder.userId,
+          environment: buyerApiKey.apiKey.environment
         }),
         privateConnectorCurlCommand: this.buildPrivateConnectorCurlCommand({
           controlPlaneBaseUrl: request.controlPlaneBaseUrl,
@@ -390,6 +425,12 @@ export class SeedRunnableAlphaDemo {
         dashboardUrl: this.buildDashboardUrl({
           baseUrl: request.dashboardBaseUrl,
           pathname: "/provider",
+          organizationId: providerOrganization.organization.id,
+          actorUserId: providerOrganization.founder.userId
+        }),
+        disputesDashboardUrl: this.buildDashboardUrl({
+          baseUrl: request.dashboardBaseUrl,
+          pathname: "/provider/disputes",
           organizationId: providerOrganization.organization.id,
           actorUserId: providerOrganization.founder.userId
         }),
@@ -431,10 +472,14 @@ export class SeedRunnableAlphaDemo {
     pathname: string;
     organizationId: string;
     actorUserId: string;
+    environment?: string;
   }): string {
     const url = new URL(input.pathname, input.baseUrl);
     url.searchParams.set("organizationId", input.organizationId);
     url.searchParams.set("actorUserId", input.actorUserId);
+    if (input.environment !== undefined) {
+      url.searchParams.set("environment", input.environment);
+    }
     return url.toString();
   }
 
@@ -467,6 +512,22 @@ export class SeedRunnableAlphaDemo {
       `-X POST '${gatewayUrl}'`,
       '-d \'{"model":"openai/gpt-oss-120b-like","messages":[{"role":"user","content":"Hello from the local gateway demo"}]}\''
     ].join(" ");
+  }
+
+  private buildComplianceExportCurlCommand(input: {
+    controlPlaneBaseUrl: string;
+    organizationId: string;
+    actorUserId: string;
+    environment: string;
+  }): string {
+    const exportUrl = new URL(
+      `/v1/organizations/${input.organizationId}/compliance/dpa-export`,
+      input.controlPlaneBaseUrl
+    );
+    exportUrl.searchParams.set("actorUserId", input.actorUserId);
+    exportUrl.searchParams.set("environment", input.environment);
+
+    return ["curl -sS", `'${exportUrl.toString()}'`].join(" ");
   }
 
   private buildEmbeddingCurlCommand(input: {

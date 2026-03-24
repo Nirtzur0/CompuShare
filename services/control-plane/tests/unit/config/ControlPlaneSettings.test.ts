@@ -11,14 +11,24 @@ describe("loadControlPlaneSettings", () => {
         PORT: "3100",
         DATABASE_URL: "postgres://postgres:postgres@localhost:5432/compushare",
         WORKLOAD_BUNDLE_SIGNING_KEY: "local-workload-signing-secret-1234567890",
-        WORKLOAD_BUNDLE_SIGNING_KEY_ID: "local-hmac-v1"
+        WORKLOAD_BUNDLE_SIGNING_KEY_ID: "local-hmac-v1",
+        COMPLIANCE_LEGAL_ENTITY_NAME: "CompuShare, Inc.",
+        COMPLIANCE_PRIVACY_EMAIL: "privacy@example.com",
+        COMPLIANCE_SECURITY_EMAIL: "security@example.com",
+        COMPLIANCE_DPA_EFFECTIVE_DATE: "2026-03-10",
+        COMPLIANCE_DPA_VERSION: "2026.03"
       })
     ).toEqual({
       host: "127.0.0.1",
       port: 3100,
       databaseUrl: "postgres://postgres:postgres@localhost:5432/compushare",
       workloadBundleSigningKey: "local-workload-signing-secret-1234567890",
-      workloadBundleSigningKeyId: "local-hmac-v1"
+      workloadBundleSigningKeyId: "local-hmac-v1",
+      complianceLegalEntityName: "CompuShare, Inc.",
+      compliancePrivacyEmail: "privacy@example.com",
+      complianceSecurityEmail: "security@example.com",
+      complianceDpaEffectiveDate: "2026-03-10",
+      complianceDpaVersion: "2026.03"
     });
   });
 

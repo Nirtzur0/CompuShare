@@ -10,6 +10,9 @@ describe("ProviderDashboardScreen", () => {
       organizationId: "org-123",
       actorRole: "finance",
       activeNodeCount: 2,
+      activeDisputeCount: 1,
+      activeDisputeHoldUsd: "4.25",
+      recentLostDisputeCount90d: 2,
       healthSummary: {
         healthy: 1,
         degraded: 1,
@@ -55,13 +58,16 @@ describe("ProviderDashboardScreen", () => {
       ],
     });
 
-    render(<ProviderDashboardScreen overview={overview} />);
+    render(
+      <ProviderDashboardScreen actorUserId="user-123" overview={overview} />,
+    );
 
     expect(
       screen.getByRole("heading", { name: /provider overview for org-123/i }),
     ).toBeTruthy();
     expect(screen.getByText("Withdrawable cash")).toBeTruthy();
     expect(screen.getByText("$7.75")).toBeTruthy();
+    expect(screen.getByText("Provider dispute visibility")).toBeTruthy();
     expect(screen.getByText("Primary Node")).toBeTruthy();
     expect(screen.getByText(/4x NVIDIA A100/)).toBeTruthy();
     expect(screen.getByText("Daily earnings")).toBeTruthy();

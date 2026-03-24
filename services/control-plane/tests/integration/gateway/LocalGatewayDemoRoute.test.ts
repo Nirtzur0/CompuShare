@@ -6,6 +6,7 @@ import { SeedRunnableAlphaDemo } from "../../../src/application/demo/SeedRunnabl
 import { GetConsumerDashboardOverviewUseCase } from "../../../src/application/dashboard/GetConsumerDashboardOverviewUseCase.js";
 import { GetProviderDashboardOverviewUseCase } from "../../../src/application/dashboard/GetProviderDashboardOverviewUseCase.js";
 import { ExecuteChatCompletionUseCase } from "../../../src/application/gateway/ExecuteChatCompletionUseCase.js";
+import { GatewayUsageAdmissionUseCase } from "../../../src/application/gateway/GatewayUsageAdmissionUseCase.js";
 import { AuthenticateGatewayApiKeyUseCase } from "../../../src/application/identity/AuthenticateGatewayApiKeyUseCase.js";
 import { CreateOrganizationUseCase } from "../../../src/application/identity/CreateOrganizationUseCase.js";
 import { IssueOrganizationApiKeyUseCase } from "../../../src/application/identity/IssueOrganizationApiKeyUseCase.js";
@@ -21,6 +22,7 @@ import { UpsertProviderNodeRoutingProfileUseCase } from "../../../src/applicatio
 import { PrepareSignedChatWorkloadBundleUseCase } from "../../../src/application/workload/PrepareSignedChatWorkloadBundleUseCase.js";
 import { VerifySignedWorkloadBundleAdmissionUseCase } from "../../../src/application/workload/VerifySignedWorkloadBundleAdmissionUseCase.js";
 import { PlacementScoringPolicy } from "../../../src/config/PlacementScoringPolicy.js";
+import { GatewayTrafficPolicy } from "../../../src/config/GatewayTrafficPolicy.js";
 import { InMemoryApprovedChatModelCatalog } from "../../../src/infrastructure/gateway/InMemoryApprovedChatModelCatalog.js";
 import { FetchGatewayUpstreamClient } from "../../../src/infrastructure/gateway/FetchGatewayUpstreamClient.js";
 import { StructuredConsoleAuditLog } from "../../../src/infrastructure/observability/StructuredConsoleAuditLog.js";
@@ -198,6 +200,12 @@ describe("local gateway demo route", () => {
         () => new Date("2026-03-17T09:05:30.000Z")
       ),
       auditLog,
+      new GatewayUsageAdmissionUseCase(
+        repository,
+        auditLog,
+        GatewayTrafficPolicy.createDefault(),
+        () => new Date("2026-03-17T09:05:45.000Z")
+      ),
       () => new Date("2026-03-17T09:06:00.000Z")
     );
     try {

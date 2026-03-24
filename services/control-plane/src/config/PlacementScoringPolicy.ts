@@ -25,4 +25,14 @@ export class PlacementScoringPolicy {
       );
     }
   }
+
+  public resolveDisputePenaltyMultiplier(lostDisputeCount90d: number): number {
+    if (!Number.isInteger(lostDisputeCount90d) || lostDisputeCount90d < 0) {
+      throw new DomainValidationError(
+        "Lost dispute counts must be non-negative integers."
+      );
+    }
+
+    return Math.max(0.7, 1 - 0.1 * lostDisputeCount90d);
+  }
 }

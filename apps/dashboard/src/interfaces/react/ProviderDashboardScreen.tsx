@@ -3,6 +3,7 @@ import type { ProviderDashboardOverview } from "../../domain/provider/ProviderDa
 
 export interface ProviderDashboardScreenProps {
   overview: ProviderDashboardOverview;
+  actorUserId: string;
 }
 
 function formatDateLabel(date: string): string {
@@ -76,6 +77,50 @@ export function ProviderDashboardScreen(props: ProviderDashboardScreenProps) {
             <p className="card-caption">{card.description}</p>
           </article>
         ))}
+      </section>
+
+      <section className="inventory-panel">
+        <div className="inventory-header">
+          <div>
+            <p className="eyebrow">Disputes</p>
+            <h2>Provider dispute visibility</h2>
+          </div>
+          <p className="inventory-note">
+            Active dispute exposure reduces payout eligibility and recent lost
+            disputes reduce placement priority.
+          </p>
+        </div>
+        <div className="card-grid">
+          <article className="card warning">
+            <p className="card-label">Active disputes</p>
+            <p className="card-value">{props.overview.activeDisputeCount}</p>
+            <p className="card-caption">
+              Hold amount ${props.overview.activeDisputeHoldUsd}
+            </p>
+          </article>
+          <article className="card neutral">
+            <p className="card-label">Lost disputes (90d)</p>
+            <p className="card-value">
+              {props.overview.recentLostDisputeCount90d}
+            </p>
+            <p className="card-caption">
+              Placement penalties apply deterministically from this count.
+            </p>
+          </article>
+          <article className="card neutral">
+            <p className="card-label">Workflow</p>
+            <p className="card-value">
+              <a
+                href={`/provider/disputes?organizationId=${props.overview.organizationId}&actorUserId=${props.actorUserId}`}
+              >
+                Open dispute dashboard
+              </a>
+            </p>
+            <p className="card-caption">
+              Review read-only dispute state and payout hold exposure.
+            </p>
+          </article>
+        </div>
       </section>
 
       <section className="inventory-panel">

@@ -11,6 +11,7 @@ import type {
 import type { PrepareSignedEmbeddingWorkloadBundleUseCase } from "../workload/PrepareSignedEmbeddingWorkloadBundleUseCase.js";
 import type { AuthenticatedGatewayExecutionContext } from "./ExecuteChatCompletionUseCase.js";
 import { GatewayAuthorizationHeaderError } from "./ExecuteChatCompletionUseCase.js";
+import type { GatewayUsageAdmissionUseCase } from "./GatewayUsageAdmissionUseCase.js";
 
 export interface ExecuteEmbeddingRequest {
   authorizationHeader: string;
@@ -35,6 +36,10 @@ export class ExecuteEmbeddingUseCase {
     private readonly gatewayUpstreamClient: GatewayUpstreamClient,
     private readonly recordGatewayUsageMeterEventUseCase: RecordGatewayUsageMeterEventUseCase,
     private readonly auditLog: AuditLog,
+    private readonly gatewayUsageAdmissionUseCase: Pick<
+      GatewayUsageAdmissionUseCase,
+      "admitEmbedding" | "settle" | "release"
+    >,
     private readonly clock: () => Date = () => new Date(),
     private readonly latencyClock: () => number = () => performance.now()
   ) {}
@@ -60,6 +65,7 @@ export class ExecuteEmbeddingUseCase {
   public async executeAuthenticated(input: {
     context: AuthenticatedGatewayExecutionContext;
     request: GatewayEmbeddingRequest;
+    requestSource?: "interactive" | "batch_worker";
   }): Promise<ExecuteEmbeddingResponse> {
     const manifest = this.approvedEmbeddingModelCatalog.findByAlias(
       input.request.model
@@ -69,89 +75,114 @@ export class ExecuteEmbeddingUseCase {
       throw new ApprovedEmbeddingModelNotFoundError(input.request.model);
     }
 
-    const placement = await this.resolveSyncPlacementUseCase.execute({
-      organizationId: input.context.organizationId,
-      environment: input.context.environment,
-      approvedModelAlias: manifest.alias,
-      ...manifest.placementRequirements.toSnapshot()
+    const admission = await this.gatewayUsageAdmissionUseCase.admitEmbedding({
+      context: input.context,
+      request: input.request,
+      requestSource: input.requestSource ?? "interactive"
     });
-    const signedBundle =
-      await this.prepareSignedEmbeddingWorkloadBundleUseCase.execute({
+
+    let admissionSettled = false;
+
+    try {
+      const placement = await this.resolveSyncPlacementUseCase.execute({
+        organizationId: input.context.organizationId,
+        environment: input.context.environment,
+        approvedModelAlias: manifest.alias,
+        ...manifest.placementRequirements.toSnapshot()
+      });
+      const signedBundle =
+        await this.prepareSignedEmbeddingWorkloadBundleUseCase.execute({
+          actorUserId: input.context.issuedByUserId,
+          customerOrganizationId: input.context.organizationId,
+          environment: input.context.environment,
+          manifest,
+          providerNodeId: placement.selection.providerNodeId,
+          request: input.request
+        });
+      const upstreamRequestStartedAt = this.latencyClock();
+      const response = await this.gatewayUpstreamClient.dispatchEmbedding({
+        endpointUrl: this.resolveEmbeddingEndpointUrl(
+          placement.selection.endpointUrl
+        ),
+        request: {
+          ...input.request,
+          model: manifest.providerModelId
+        },
+        headers: {
+          "x-compushare-workload-bundle": Buffer.from(
+            JSON.stringify(signedBundle.bundle.toSnapshot()),
+            "utf8"
+          ).toString("base64url"),
+          "x-compushare-workload-signature": signedBundle.signature,
+          "x-compushare-workload-signature-key-id": signedBundle.signatureKeyId
+        }
+      });
+      const occurredAt = this.clock();
+      const latencyMs = Math.max(
+        0,
+        Math.round(this.latencyClock() - upstreamRequestStartedAt)
+      );
+
+      await this.gatewayUsageAdmissionUseCase.settle({
+        admissionId: admission.admissionId,
+        actualTotalTokens: response.usage.total_tokens,
+        settledAt: occurredAt
+      });
+      admissionSettled = true;
+
+      await this.recordGatewayUsageMeterEventUseCase.execute({
+        workloadBundleId: signedBundle.bundle.id,
+        occurredAt: occurredAt.toISOString(),
         actorUserId: input.context.issuedByUserId,
         customerOrganizationId: input.context.organizationId,
-        environment: input.context.environment,
-        manifest,
+        providerOrganizationId: placement.selection.providerOrganizationId,
         providerNodeId: placement.selection.providerNodeId,
-        request: input.request
-      });
-    const upstreamRequestStartedAt = this.latencyClock();
-    const response = await this.gatewayUpstreamClient.dispatchEmbedding({
-      endpointUrl: this.resolveEmbeddingEndpointUrl(
-        placement.selection.endpointUrl
-      ),
-      request: {
-        ...input.request,
-        model: manifest.providerModelId
-      },
-      headers: {
-        "x-compushare-workload-bundle": Buffer.from(
-          JSON.stringify(signedBundle.bundle.toSnapshot()),
-          "utf8"
-        ).toString("base64url"),
-        "x-compushare-workload-signature": signedBundle.signature,
-        "x-compushare-workload-signature-key-id": signedBundle.signatureKeyId
-      }
-    });
-    const occurredAt = this.clock();
-    const latencyMs = Math.max(
-      0,
-      Math.round(this.latencyClock() - upstreamRequestStartedAt)
-    );
-
-    await this.recordGatewayUsageMeterEventUseCase.execute({
-      workloadBundleId: signedBundle.bundle.id,
-      occurredAt: occurredAt.toISOString(),
-      actorUserId: input.context.issuedByUserId,
-      customerOrganizationId: input.context.organizationId,
-      providerOrganizationId: placement.selection.providerOrganizationId,
-      providerNodeId: placement.selection.providerNodeId,
-      environment: input.context.environment,
-      approvedModelAlias: manifest.alias,
-      manifestId: manifest.manifestId,
-      decisionLogId: placement.decisionLogId,
-      requestKind: "embeddings",
-      promptTokens: response.usage.prompt_tokens,
-      completionTokens: 0,
-      totalTokens: response.usage.total_tokens,
-      latencyMs
-    });
-
-    await this.auditLog.record({
-      eventName: "gateway.embedding.forwarded",
-      occurredAt: occurredAt.toISOString(),
-      actorUserId: input.context.issuedByUserId,
-      organizationId: input.context.organizationId,
-      metadata: {
-        apiKeyId: input.context.apiKeyId,
         environment: input.context.environment,
         approvedModelAlias: manifest.alias,
         manifestId: manifest.manifestId,
-        providerModelId: manifest.providerModelId,
-        workloadBundleId: signedBundle.bundle.id,
-        workloadSignatureKeyId: signedBundle.signatureKeyId,
         decisionLogId: placement.decisionLogId,
-        providerNodeId: placement.selection.providerNodeId,
-        providerOrganizationId: placement.selection.providerOrganizationId,
+        requestKind: "embeddings",
         promptTokens: response.usage.prompt_tokens,
+        completionTokens: 0,
         totalTokens: response.usage.total_tokens,
         latencyMs
-      }
-    });
+      });
 
-    return {
-      ...response,
-      model: manifest.alias
-    };
+      await this.auditLog.record({
+        eventName: "gateway.embedding.forwarded",
+        occurredAt: occurredAt.toISOString(),
+        actorUserId: input.context.issuedByUserId,
+        organizationId: input.context.organizationId,
+        metadata: {
+          apiKeyId: input.context.apiKeyId,
+          environment: input.context.environment,
+          approvedModelAlias: manifest.alias,
+          manifestId: manifest.manifestId,
+          providerModelId: manifest.providerModelId,
+          workloadBundleId: signedBundle.bundle.id,
+          workloadSignatureKeyId: signedBundle.signatureKeyId,
+          decisionLogId: placement.decisionLogId,
+          providerNodeId: placement.selection.providerNodeId,
+          providerOrganizationId: placement.selection.providerOrganizationId,
+          promptTokens: response.usage.prompt_tokens,
+          totalTokens: response.usage.total_tokens,
+          latencyMs
+        }
+      });
+
+      return {
+        ...response,
+        model: manifest.alias
+      };
+    } catch (error) {
+      if (!admissionSettled) {
+        await this.gatewayUsageAdmissionUseCase.release({
+          admissionId: admission.admissionId,
+          releaseReason: "request_failed"
+        });
+      }
+      throw error;
+    }
   }
 
   private parseAuthorizationHeader(headerValue: string): string {

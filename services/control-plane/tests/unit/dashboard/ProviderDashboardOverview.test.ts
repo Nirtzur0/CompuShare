@@ -6,6 +6,9 @@ describe("ProviderDashboardOverview", () => {
     const overview = ProviderDashboardOverview.create({
       organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
       actorRole: "finance",
+      activeDisputeCount: 1,
+      activeDisputeHoldUsd: "4.25",
+      recentLostDisputeCount90d: 2,
       balances: {
         organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
         usageBalanceUsd: "25.00",
@@ -89,6 +92,9 @@ describe("ProviderDashboardOverview", () => {
       organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
       actorRole: "finance",
       activeNodeCount: 2,
+      activeDisputeCount: 1,
+      activeDisputeHoldUsd: "4.25",
+      recentLostDisputeCount90d: 2,
       healthSummary: {
         healthy: 1,
         degraded: 1,
@@ -140,6 +146,68 @@ describe("ProviderDashboardOverview", () => {
           trustTier: "t2_attested",
           gpuCount: 8,
           primaryGpuModel: "NVIDIA H100"
+        }
+      ]
+    });
+  });
+
+  it("handles paused community nodes without GPU inventory", () => {
+    const overview = ProviderDashboardOverview.create({
+      organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
+      actorRole: "owner",
+      activeDisputeCount: 0,
+      activeDisputeHoldUsd: "0.00",
+      recentLostDisputeCount90d: 0,
+      balances: {
+        organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
+        usageBalanceUsd: "0.00",
+        spendCreditsUsd: "0.00",
+        pendingEarningsUsd: "0.00",
+        withdrawableCashUsd: "0.00"
+      },
+      inventorySummaries: [
+        {
+          node: {
+            id: "0d10cfc1-9cff-42ce-9bd6-749b66d1d941",
+            organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
+            machineId: "machine-0003",
+            label: "Paused Community Node",
+            runtime: "linux",
+            region: "eu-west-1",
+            hostname: "node-03.internal",
+            trustTier: "t0_community",
+            healthState: "paused",
+            inventory: {
+              driverVersion: "550.54.14",
+              gpus: []
+            },
+            routingProfile: null,
+            enrolledAt: "2026-03-09T10:10:00.000Z"
+          },
+          latestBenchmark: null
+        }
+      ],
+      earningsTrend: [],
+      estimatedUtilizationTrend: []
+    });
+
+    expect(overview.toSnapshot()).toMatchObject({
+      activeNodeCount: 1,
+      healthSummary: {
+        healthy: 0,
+        degraded: 0,
+        paused: 1
+      },
+      trustTierSummary: {
+        community: 1,
+        vetted: 0,
+        attested: 0
+      },
+      nodes: [
+        {
+          id: "0d10cfc1-9cff-42ce-9bd6-749b66d1d941",
+          gpuCount: 0,
+          primaryGpuModel: "Unknown accelerator"
         }
       ]
     });

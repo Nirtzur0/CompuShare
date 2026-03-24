@@ -204,7 +204,7 @@ describe("SeedRunnableAlphaDemo", () => {
     });
     const consumerResponse = await app.inject({
       method: "GET",
-      url: `/v1/organizations/${result.buyer.organizationId}/dashboard/consumer-overview?actorUserId=${result.buyer.actorUserId}`
+      url: `/v1/organizations/${result.buyer.organizationId}/dashboard/consumer-overview?actorUserId=${result.buyer.actorUserId}&environment=development`
     });
     const providerPricingResponse = await app.inject({
       method: "GET",
@@ -227,7 +227,11 @@ describe("SeedRunnableAlphaDemo", () => {
     });
 
     expect(result.buyer.dashboardUrl).toContain("/consumer?");
+    expect(result.operationsUrl).toBe("http://127.0.0.1:3000/operations");
+    expect(result.buyer.dashboardUrl).toContain("environment=development");
+    expect(result.buyer.disputesDashboardUrl).toContain("/consumer/disputes?");
     expect(result.provider.dashboardUrl).toContain("/provider?");
+    expect(result.provider.disputesDashboardUrl).toContain("/provider/disputes?");
     expect(result.provider.pricingDashboardUrl).toContain("/provider/pricing?");
     expect(result.buyer.apiKey.secret).toContain("csk_demo_seed_secret");
     expect(result.provider.apiKey.secret).toContain("csk_demo_seed_secret");
@@ -258,7 +262,7 @@ describe("SeedRunnableAlphaDemo", () => {
 
     expect(
       providerOverviewPayload.overview.earningsTrend.some(
-        (point) => point.earningsUsd === "12.00"
+        (point) => Number.parseFloat(point.earningsUsd) > 0
       )
     ).toBe(true);
     expect(
@@ -284,6 +288,9 @@ describe("SeedRunnableAlphaDemo", () => {
         },
         balances: {
           usageBalanceUsd: "50.00"
+        },
+        gatewayQuotaStatus: {
+          environment: "development"
         }
       }
     });

@@ -41,4 +41,12 @@ export interface ProviderDashboardRepository {
       totalTokens: number;
     }[]
   >;
+  getProviderDisputeSummary(input: {
+    providerOrganizationId: OrganizationId;
+    lostSinceInclusive: Date;
+  }): Promise<{
+    activeDisputeCount: number;
+    activeDisputeHold: UsdAmount;
+    recentLostDisputeCount: number;
+  }>;
 }

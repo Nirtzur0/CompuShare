@@ -6,7 +6,9 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       exclude: [
+        ".next/**",
         "app/**/*.tsx",
+        "coverage/**",
         "eslint.config.js",
         "next-env.d.ts",
         "next.config.ts",

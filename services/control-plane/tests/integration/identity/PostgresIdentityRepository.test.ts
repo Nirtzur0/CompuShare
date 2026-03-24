@@ -312,6 +312,223 @@ describe("PostgresIdentityRepository", () => {
     ]);
   });
 
+  it("lists only routable provider subprocessors for the selected environment", async () => {
+    const repository = new PostgresIdentityRepository(pool, () =>
+      new Date("2026-03-10T12:00:00.000Z")
+    );
+    const issuerUserId = "345db7ff-1355-43c7-b333-6ae1e7246c3f";
+    const developmentProviderId = "ad746813-b438-45cc-83fb-5f4e7797b670";
+    const stagingOnlyProviderId = "a8bb43cc-72c0-4d1a-9daa-70216ff8686f";
+    const developmentNodeId = "e00ddef9-9466-45dc-b9b9-dbd7c4f2a454";
+    const stagingNodeId = "74ed695d-88c8-4f8e-98a7-3f52f35dd7ca";
+
+    await pool.query(
+      `
+        INSERT INTO users (id, email, display_name, created_at)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (id) DO NOTHING
+      `,
+      [
+        issuerUserId,
+        "compliance-repository-owner@example.com",
+        "Compliance Repository Owner",
+        new Date("2026-03-10T08:00:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO organizations (id, name, slug, account_capabilities, created_at)
+        VALUES
+          ($1, $2, $3, $4, $5),
+          ($6, $7, $8, $9, $10)
+      `,
+      [
+        developmentProviderId,
+        "Compliance Provider A",
+        "compliance-provider-a",
+        ["provider"],
+        new Date("2026-03-10T08:00:00.000Z"),
+        stagingOnlyProviderId,
+        "Compliance Provider B",
+        "compliance-provider-b",
+        ["provider"],
+        new Date("2026-03-10T08:05:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO organization_api_keys (
+          id, organization_id, label, environment, secret_hash, secret_prefix, issued_by_user_id, created_at, last_used_at
+        )
+        VALUES
+          ($1, $2, $3, $4, $5, $6, $7, $8, NULL),
+          ($9, $10, $11, $12, $13, $14, $15, $16, NULL)
+      `,
+      [
+        "40f90d78-a873-4b61-9f5a-b25ecfb56887",
+        developmentProviderId,
+        "dev key",
+        "development",
+        "a".repeat(64),
+        "csk_dev_1",
+        issuerUserId,
+        new Date("2026-03-10T08:10:00.000Z"),
+        "9e902b70-5fd9-46eb-84ce-c198ac393ce1",
+        stagingOnlyProviderId,
+        "staging key",
+        "staging",
+        "b".repeat(64),
+        "csk_staging_1",
+        issuerUserId,
+        new Date("2026-03-10T08:11:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO provider_nodes (
+          id, organization_id, machine_id, label, runtime, region, hostname, trust_tier, health_state, driver_version, enrolled_at
+        )
+        VALUES
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11),
+          ($12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      `,
+      [
+        developmentNodeId,
+        developmentProviderId,
+        "compliance-node-a",
+        "Compliance Node A",
+        "linux",
+        "eu-central-1",
+        "provider-a.internal",
+        "t2_attested",
+        "healthy",
+        "550.54.14",
+        new Date("2026-03-10T08:20:00.000Z"),
+        stagingNodeId,
+        stagingOnlyProviderId,
+        "compliance-node-b",
+        "Compliance Node B",
+        "linux",
+        "us-east-1",
+        "provider-b.internal",
+        "t1_vetted",
+        "healthy",
+        "550.54.14",
+        new Date("2026-03-10T08:21:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO provider_node_routing_profiles (
+          provider_node_id, endpoint_url, price_floor_usd_per_hour, updated_at
+        )
+        VALUES
+          ($1, $2, $3, $4),
+          ($5, $6, $7, $8)
+      `,
+      [
+        developmentNodeId,
+        "https://provider-a.example.com/v1/chat/completions",
+        8.5,
+        new Date("2026-03-10T08:30:00.000Z"),
+        stagingNodeId,
+        "https://provider-b.example.com/v1/chat/completions",
+        9.5,
+        new Date("2026-03-10T08:31:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO provider_node_benchmarks (
+          id, provider_node_id, gpu_class, vram_gb, throughput_tokens_per_second, driver_version, recorded_at
+        )
+        VALUES
+          ($1, $2, $3, $4, $5, $6, $7),
+          ($8, $9, $10, $11, $12, $13, $14)
+      `,
+      [
+        "16ab6890-0ebd-4ed1-a6ce-a0a8866e9f6c",
+        developmentNodeId,
+        "NVIDIA A100",
+        80,
+        700,
+        "550.54.14",
+        new Date("2026-03-10T08:40:00.000Z"),
+        "79f6a091-2236-4a74-aa74-84a1a7e41bdb",
+        stagingNodeId,
+        "NVIDIA H100",
+        80,
+        900,
+        "550.54.14",
+        new Date("2026-03-10T08:41:00.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO provider_node_attestation_challenges (
+          id, provider_node_id, nonce, created_at, expires_at, used_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `,
+      [
+        "4b632744-2da4-4b9b-a1ab-d43daa752b2f",
+        developmentNodeId,
+        "challenge-nonce",
+        new Date("2026-03-10T08:41:00.000Z"),
+        new Date("2026-03-10T09:41:00.000Z"),
+        new Date("2026-03-10T08:41:30.000Z")
+      ]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO provider_node_attestations (
+          id, provider_node_id, challenge_id, attestation_type, attestation_public_key_fingerprint, quoted_at,
+          secure_boot_enabled, pcr_values, verified, failure_reason, recorded_at, expires_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, '{}'::jsonb, $8, NULL, $9, $10
+        )
+      `,
+      [
+        "6805f6cf-8d47-4174-9f48-bb5e1ef912cb",
+        developmentNodeId,
+        "4b632744-2da4-4b9b-a1ab-d43daa752b2f",
+        "tpm_quote_v1",
+        "fingerprint-a",
+        new Date("2026-03-10T08:42:00.000Z"),
+        true,
+        true,
+        new Date("2026-03-10T08:43:00.000Z"),
+        new Date("2026-03-11T08:43:00.000Z")
+      ]
+    );
+
+    const developmentProviders = await repository.listRoutableProviderSubprocessors({
+      environment: "development",
+      now: new Date("2026-03-10T12:00:00.000Z")
+    });
+
+    expect(developmentProviders.map((entry) => entry.toSnapshot())).toMatchObject([
+      {
+        organizationId: developmentProviderId,
+        organizationSlug: "compliance-provider-a",
+        environment: "development",
+        regions: ["eu-central-1"],
+        trustTierCeiling: "t2_attested",
+        hasActiveAttestation: true,
+        routingAvailable: true,
+        routableNodeCount: 1
+      }
+    ]);
+  });
+
   it("returns benchmark history newest first when recorded_at timestamps tie", async () => {
     const repository = new PostgresIdentityRepository(pool);
     const organizationId = "26f36276-ccda-4f0d-8b34-6225d9d4156e";

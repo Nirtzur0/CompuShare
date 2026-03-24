@@ -50,6 +50,7 @@ describe("seedRunnableAlphaDemo CLI", () => {
     const summary = formatSeedRunnableAlphaDemoSummary(result);
 
     expect(result.seedTag).toBe("cli-demo");
+    expect(result.operationsUrl).toBe("http://127.0.0.1:3000/operations");
     expect(result.buyer.dashboardUrl).toContain("/consumer?");
     expect(result.buyer.privateConnectorDashboardUrl).toContain(
       "/consumer/private-connectors?"
@@ -89,6 +90,7 @@ describe("seedRunnableAlphaDemo CLI", () => {
     );
     expect(result.batchDemo.workerCommand).toBe("pnpm dev:batch-worker");
     expect(summary).toContain("Seeded runnable alpha demo data.");
+    expect(summary).toContain(result.operationsUrl);
     expect(summary).toContain(result.buyer.dashboardUrl);
     expect(summary).toContain(result.buyer.privateConnectorDashboardUrl);
     expect(summary).toContain(result.provider.pricingDashboardUrl);

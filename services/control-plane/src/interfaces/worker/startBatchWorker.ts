@@ -4,15 +4,16 @@ import { RunGatewayBatchWorkerCycleUseCase } from "../../application/batch/RunGa
 import { AuthenticateGatewayApiKeyUseCase } from "../../application/identity/AuthenticateGatewayApiKeyUseCase.js";
 import { ExecuteChatCompletionUseCase } from "../../application/gateway/ExecuteChatCompletionUseCase.js";
 import { ExecuteEmbeddingUseCase } from "../../application/gateway/ExecuteEmbeddingUseCase.js";
+import { GatewayUsageAdmissionUseCase } from "../../application/gateway/GatewayUsageAdmissionUseCase.js";
 import { RecordGatewayUsageMeterEventUseCase } from "../../application/metering/RecordGatewayUsageMeterEventUseCase.js";
 import { ResolveSyncPlacementUseCase } from "../../application/placement/ResolveSyncPlacementUseCase.js";
 import { PrepareSignedChatWorkloadBundleUseCase } from "../../application/workload/PrepareSignedChatWorkloadBundleUseCase.js";
 import { PrepareSignedEmbeddingWorkloadBundleUseCase } from "../../application/workload/PrepareSignedEmbeddingWorkloadBundleUseCase.js";
 import { VerifySignedWorkloadBundleAdmissionUseCase } from "../../application/workload/VerifySignedWorkloadBundleAdmissionUseCase.js";
+import { loadControlPlaneProductDefaults } from "../../config/ControlPlaneProductDefaults.js";
+import { GatewayTrafficPolicy } from "../../config/GatewayTrafficPolicy.js";
 import { loadControlPlaneSettings } from "../../config/ControlPlaneSettings.js";
 import { FetchGatewayUpstreamClient } from "../../infrastructure/gateway/FetchGatewayUpstreamClient.js";
-import { InMemoryApprovedChatModelCatalog } from "../../infrastructure/gateway/InMemoryApprovedChatModelCatalog.js";
-import { InMemoryApprovedEmbeddingModelCatalog } from "../../infrastructure/gateway/InMemoryApprovedEmbeddingModelCatalog.js";
 import { StructuredConsoleAuditLog } from "../../infrastructure/observability/StructuredConsoleAuditLog.js";
 import { IdentitySchemaInitializer } from "../../infrastructure/persistence/postgres/IdentitySchemaInitializer.js";
 import { PostgresIdentityRepository } from "../../infrastructure/persistence/postgres/PostgresIdentityRepository.js";
@@ -26,10 +27,11 @@ export async function startBatchWorker(): Promise<void> {
 
   const repository = new PostgresIdentityRepository(pool);
   const auditLog = new StructuredConsoleAuditLog();
-  const approvedChatModelCatalog =
-    InMemoryApprovedChatModelCatalog.createDefault();
+  const gatewayTrafficPolicy = GatewayTrafficPolicy.load(process.env);
+  const productDefaults = loadControlPlaneProductDefaults();
+  const approvedChatModelCatalog = productDefaults.approvedChatModelCatalog;
   const approvedEmbeddingModelCatalog =
-    InMemoryApprovedEmbeddingModelCatalog.createDefault();
+    productDefaults.approvedEmbeddingModelCatalog;
   const authenticateGatewayApiKeyUseCase = new AuthenticateGatewayApiKeyUseCase(
     repository,
     auditLog
@@ -54,6 +56,11 @@ export async function startBatchWorker(): Promise<void> {
     repository,
     auditLog
   );
+  const gatewayUsageAdmissionUseCase = new GatewayUsageAdmissionUseCase(
+    repository,
+    auditLog,
+    gatewayTrafficPolicy
+  );
   const executeChatCompletionUseCase = new ExecuteChatCompletionUseCase(
     authenticateGatewayApiKeyUseCase,
     approvedChatModelCatalog,
@@ -64,7 +71,8 @@ export async function startBatchWorker(): Promise<void> {
     ),
     new FetchGatewayUpstreamClient(),
     gatewayUsageMeterEventUseCase,
-    auditLog
+    auditLog,
+    gatewayUsageAdmissionUseCase
   );
   const executeEmbeddingUseCase = new ExecuteEmbeddingUseCase(
     authenticateGatewayApiKeyUseCase,
@@ -76,7 +84,8 @@ export async function startBatchWorker(): Promise<void> {
     ),
     new FetchGatewayUpstreamClient(),
     gatewayUsageMeterEventUseCase,
-    auditLog
+    auditLog,
+    gatewayUsageAdmissionUseCase
   );
   const worker = new RunGatewayBatchWorkerCycleUseCase(
     repository,

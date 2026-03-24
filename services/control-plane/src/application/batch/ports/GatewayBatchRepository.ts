@@ -1,6 +1,8 @@
 import type { GatewayBatchJob } from "../../../domain/batch/GatewayBatchJob.js";
 import type { GatewayBatchJobItem } from "../../../domain/batch/GatewayBatchJobItem.js";
 import type { GatewayFile } from "../../../domain/batch/GatewayFile.js";
+import type { OrganizationApiKeyEnvironment } from "../../../domain/identity/OrganizationApiKeyEnvironment.js";
+import type { OrganizationId } from "../../../domain/identity/OrganizationId.js";
 
 export interface GatewayBatchRepository {
   createGatewayFile(file: GatewayFile): Promise<void>;
@@ -46,4 +48,8 @@ export interface GatewayBatchRepository {
     completedAt: string;
   }): Promise<void>;
   claimNextGatewayBatch(): Promise<GatewayBatchJob | null>;
+  countActiveGatewayBatches(input: {
+    organizationId: OrganizationId;
+    environment: OrganizationApiKeyEnvironment;
+  }): Promise<number>;
 }

@@ -7,6 +7,7 @@ interface ConsumerPageProps {
   searchParams?: Promise<{
     organizationId?: string;
     actorUserId?: string;
+    environment?: string;
   }>;
 }
 
@@ -14,12 +15,16 @@ export default async function ConsumerPage(input: ConsumerPageProps) {
   const searchParams = input.searchParams ? await input.searchParams : {};
   const organizationId = searchParams.organizationId?.trim();
   const actorUserId = searchParams.actorUserId?.trim();
+  const environment = searchParams.environment?.trim();
 
   if (
     organizationId === undefined ||
     organizationId.length === 0 ||
     actorUserId === undefined ||
-    actorUserId.length === 0
+    actorUserId.length === 0 ||
+    (environment !== "development" &&
+      environment !== "staging" &&
+      environment !== "production")
   ) {
     return (
       <main className="landing-shell">
@@ -28,7 +33,8 @@ export default async function ConsumerPage(input: ConsumerPageProps) {
           <h1>Missing organization context</h1>
           <p className="landing-copy">
             Supply both <code>organizationId</code> and <code>actorUserId</code>{" "}
-            query params to load the live consumer shell.
+            plus <code>environment</code> query params to load the live consumer
+            shell.
           </p>
         </section>
       </main>
@@ -42,6 +48,7 @@ export default async function ConsumerPage(input: ConsumerPageProps) {
   const overview = await loader.execute({
     organizationId,
     actorUserId,
+    environment,
   });
 
   return <ConsumerDashboardScreen overview={overview} />;

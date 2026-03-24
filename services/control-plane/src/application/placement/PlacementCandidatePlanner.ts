@@ -12,6 +12,7 @@ export class PlacementCandidatePlanner {
   public buildCandidates(
     requirements: PlacementRequirements,
     summaries: readonly ProviderInventorySummary[],
+    lostDisputeCountsByProviderOrganization: ReadonlyMap<string, number>,
     approvedModelAlias?: string
   ): PlacementCandidate[] {
     return summaries
@@ -46,14 +47,27 @@ export class PlacementCandidatePlanner {
           warmCacheMatch === null
             ? 1
             : this.placementScoringPolicy.warmCacheMultiplier;
+        const lostDisputeCount90d =
+          lostDisputeCountsByProviderOrganization.get(
+            summary.node.organizationId.value
+          ) ?? 0;
+        const disputePenaltyMultiplier =
+          this.placementScoringPolicy.resolveDisputePenaltyMultiplier(
+            lostDisputeCount90d
+          );
 
         return [
           PlacementCandidate.fromInventorySummary({
             summary,
             matchedGpu,
-            score: pricePerformanceScore * warmCacheMultiplier,
+            score:
+              pricePerformanceScore *
+              warmCacheMultiplier *
+              disputePenaltyMultiplier,
             pricePerformanceScore,
             warmCacheMultiplier,
+            disputePenaltyMultiplier,
+            lostDisputeCount90d,
             warmCacheExpiresAt: warmCacheMatch?.expiresAt ?? null
           })
         ];

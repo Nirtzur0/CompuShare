@@ -11,6 +11,8 @@
     "dev:dashboard": "pnpm --filter @compushare/dashboard dev",
     "finance:payout:run": "pnpm --filter @compushare/control-plane finance:payout:run",
     "seed:demo": "pnpm --filter @compushare/control-plane demo:seed",
+    "smoke": "node ./scripts/smoke.mjs",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test",
     "lint": "pnpm --filter @compushare/control-plane lint && pnpm --filter @compushare/provider-runtime lint && pnpm --filter @compushare/dashboard lint",
     "typecheck": "pnpm --filter @compushare/control-plane typecheck && pnpm --filter @compushare/provider-runtime typecheck && pnpm --filter @compushare/dashboard typecheck",
     "test": "pnpm --filter @compushare/control-plane test && pnpm --filter @compushare/provider-runtime test && pnpm --filter @compushare/dashboard test",

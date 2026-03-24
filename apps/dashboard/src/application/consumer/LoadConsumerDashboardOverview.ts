@@ -12,6 +12,7 @@ export class LoadConsumerDashboardOverview {
   public execute(input: {
     organizationId: string;
     actorUserId: string;
+    environment: "development" | "staging" | "production";
   }): Promise<ConsumerDashboardOverview> {
     return this.controlPlaneClient.getConsumerDashboardOverview(input);
   }

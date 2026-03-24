@@ -6,8 +6,26 @@ import {
   GetConsumerDashboardOverviewUseCase
 } from "../../../src/application/dashboard/GetConsumerDashboardOverviewUseCase.js";
 import { ConsumerSpendSummary } from "../../../src/domain/dashboard/ConsumerSpendSummary.js";
+import type { GatewayUsageQuotaSnapshot } from "../../../src/application/gateway/ports/GatewayUsageAdmissionRepository.js";
 import { OrganizationMember } from "../../../src/domain/identity/OrganizationMember.js";
 import { OrganizationWalletSummary } from "../../../src/domain/ledger/OrganizationWalletSummary.js";
+
+function createGatewayQuotaSnapshot(
+  overrides: Partial<GatewayUsageQuotaSnapshot> = {}
+): GatewayUsageQuotaSnapshot {
+  return {
+    environment: "development",
+    fixedDayStartedAt: "2026-03-18T00:00:00.000Z",
+    fixedDayResetsAt: "2026-03-19T00:00:00.000Z",
+    fixedDayTokenLimit: 2_000_000,
+    fixedDayUsedTokens: 0,
+    fixedDayRemainingTokens: 2_000_000,
+    syncRequestsPerMinutePerApiKey: 60,
+    maxBatchItemsPerJob: 500,
+    maxActiveBatchesPerOrganizationEnvironment: 5,
+    ...overrides
+  };
+}
 
 describe("GetConsumerDashboardOverviewUseCase", () => {
   it("returns an aggregated consumer dashboard overview for finance-visible members", async () => {
@@ -45,7 +63,14 @@ describe("GetConsumerDashboardOverviewUseCase", () => {
           })
         ),
       listConsumerDailyUsageTrend: () => Promise.resolve([]),
-      listConsumerLatencyByModel: () => Promise.resolve([])
+      listConsumerLatencyByModel: () => Promise.resolve([]),
+      getGatewayUsageQuotaSnapshot: () =>
+        Promise.resolve(
+          createGatewayQuotaSnapshot({
+            fixedDayUsedTokens: 512,
+            fixedDayRemainingTokens: 1_999_488
+          })
+        )
     };
     const useCase = new GetConsumerDashboardOverviewUseCase(
       repository,
@@ -54,7 +79,8 @@ describe("GetConsumerDashboardOverviewUseCase", () => {
 
     const response = await useCase.execute({
       organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
-      actorUserId: "345db7ff-1355-43c7-b333-6ae1e7246c3f"
+      actorUserId: "345db7ff-1355-43c7-b333-6ae1e7246c3f",
+      environment: "development"
     });
 
     expect(response.overview).toMatchObject({
@@ -66,6 +92,10 @@ describe("GetConsumerDashboardOverviewUseCase", () => {
       balances: {
         usageBalanceUsd: "50.00",
         spendCreditsUsd: "2.50"
+      },
+      gatewayQuotaStatus: {
+          environment: "development",
+        fixedDayUsedTokens: 512
       }
     });
     expect(response.overview.usageTrend).toEqual(expect.any(Array));
@@ -79,7 +109,9 @@ describe("GetConsumerDashboardOverviewUseCase", () => {
           lifetimeFundedUsd: "100.00",
           lifetimeSettledSpendUsd: "50.00",
           usageBalanceUsd: "50.00",
-          spendCreditsUsd: "2.50"
+          spendCreditsUsd: "2.50",
+          gatewayQuotaEnvironment: "development",
+          gatewayQuotaRemainingTokens: 1_999_488
         }
       })
     );
@@ -107,7 +139,9 @@ describe("GetConsumerDashboardOverviewUseCase", () => {
             })
           ),
         listConsumerDailyUsageTrend: () => Promise.resolve([]),
-        listConsumerLatencyByModel: () => Promise.resolve([])
+        listConsumerLatencyByModel: () => Promise.resolve([]),
+        getGatewayUsageQuotaSnapshot: () =>
+          Promise.resolve(createGatewayQuotaSnapshot())
       },
       { record: () => Promise.resolve() }
     );
@@ -115,7 +149,8 @@ describe("GetConsumerDashboardOverviewUseCase", () => {
     await expect(
       useCase.execute({
         organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
-        actorUserId: "345db7ff-1355-43c7-b333-6ae1e7246c3f"
+        actorUserId: "345db7ff-1355-43c7-b333-6ae1e7246c3f",
+        environment: "development"
       })
     ).rejects.toBeInstanceOf(ConsumerDashboardAuthorizationError);
   });
@@ -135,7 +170,9 @@ describe("GetConsumerDashboardOverviewUseCase", () => {
             })
           ),
         listConsumerDailyUsageTrend: () => Promise.resolve([]),
-        listConsumerLatencyByModel: () => Promise.resolve([])
+        listConsumerLatencyByModel: () => Promise.resolve([]),
+        getGatewayUsageQuotaSnapshot: () =>
+          Promise.resolve(createGatewayQuotaSnapshot())
       },
       { record: () => Promise.resolve() }
     );
@@ -143,7 +180,8 @@ describe("GetConsumerDashboardOverviewUseCase", () => {
     await expect(
       useCase.execute({
         organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
-        actorUserId: "345db7ff-1355-43c7-b333-6ae1e7246c3f"
+        actorUserId: "345db7ff-1355-43c7-b333-6ae1e7246c3f",
+        environment: "development"
       })
     ).rejects.toBeInstanceOf(ConsumerDashboardCapabilityRequiredError);
   });
@@ -162,7 +200,9 @@ describe("GetConsumerDashboardOverviewUseCase", () => {
             })
           ),
         listConsumerDailyUsageTrend: () => Promise.resolve([]),
-        listConsumerLatencyByModel: () => Promise.resolve([])
+        listConsumerLatencyByModel: () => Promise.resolve([]),
+        getGatewayUsageQuotaSnapshot: () =>
+          Promise.resolve(createGatewayQuotaSnapshot())
       },
       { record: () => Promise.resolve() }
     );
@@ -170,7 +210,8 @@ describe("GetConsumerDashboardOverviewUseCase", () => {
     await expect(
       useCase.execute({
         organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
-        actorUserId: "345db7ff-1355-43c7-b333-6ae1e7246c3f"
+        actorUserId: "345db7ff-1355-43c7-b333-6ae1e7246c3f",
+        environment: "development"
       })
     ).rejects.toBeInstanceOf(ConsumerDashboardOrganizationNotFoundError);
   });

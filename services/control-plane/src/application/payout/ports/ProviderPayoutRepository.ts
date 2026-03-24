@@ -7,6 +7,7 @@ import type { ProviderPayoutAccount } from "../../../domain/payout/ProviderPayou
 import type { ProviderPayoutAvailability } from "../../../domain/payout/ProviderPayoutAvailability.js";
 import type { ProviderPayoutDisbursement } from "../../../domain/payout/ProviderPayoutDisbursement.js";
 import type { ProviderPayoutRun } from "../../../domain/payout/ProviderPayoutRun.js";
+import type { UsdAmount } from "../../../domain/ledger/UsdAmount.js";
 
 export interface ProviderPayoutRepository {
   findOrganizationAccountCapabilities(
@@ -49,4 +50,7 @@ export interface ProviderPayoutRepository {
     receivedAt: Date;
     payload: Record<string, unknown>;
   }): Promise<boolean>;
+  getActiveProviderDisputeHold(
+    providerOrganizationId: OrganizationId
+  ): Promise<UsdAmount>;
 }

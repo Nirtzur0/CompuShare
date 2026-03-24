@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { loadWorkloadManifestProvenanceSettings } from "../../config/WorkloadManifestProvenanceSettings.js";
 import { GenerateWorkloadManifestProvenanceUseCase } from "../../application/workload/GenerateWorkloadManifestProvenanceUseCase.js";
-import { InMemoryApprovedChatModelCatalog } from "../../infrastructure/gateway/InMemoryApprovedChatModelCatalog.js";
+import { loadControlPlaneProductDefaults } from "../../config/ControlPlaneProductDefaults.js";
 import { HmacWorkloadManifestSignatureService } from "../../infrastructure/security/HmacWorkloadManifestSignatureService.js";
 
 export interface EmitWorkloadManifestProvenanceOptions {
@@ -26,8 +26,9 @@ export async function emitWorkloadManifestProvenance(
   const settings = loadWorkloadManifestProvenanceSettings(
     options.environment ?? process.env
   );
+  const productDefaults = loadControlPlaneProductDefaults();
   const useCase = new GenerateWorkloadManifestProvenanceUseCase(
-    InMemoryApprovedChatModelCatalog.createDefault(),
+    productDefaults.approvedChatModelCatalog,
     new HmacWorkloadManifestSignatureService(
       settings.workloadManifestSigningKey,
       settings.workloadManifestSigningKeyId,

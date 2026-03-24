@@ -28,6 +28,8 @@ export interface PlacementDecisionLogSnapshot {
   selectionScore: number | null;
   pricePerformanceScore: number | null;
   warmCacheMatched: boolean | null;
+  disputePenaltyMultiplier: number | null;
+  lostDisputeCount90d: number | null;
   rejectionReason: PlacementDecisionRejectionReason | null;
   createdAt: string;
 }
@@ -45,6 +47,8 @@ export class PlacementDecisionLog {
     public readonly selectionScore: number | null,
     public readonly pricePerformanceScore: number | null,
     public readonly warmCacheMatched: boolean | null,
+    public readonly disputePenaltyMultiplier: number | null,
+    public readonly lostDisputeCount90d: number | null,
     public readonly rejectionReason: PlacementDecisionRejectionReason | null,
     public readonly createdAt: Date
   ) {}
@@ -60,6 +64,8 @@ export class PlacementDecisionLog {
     selectionScore: number;
     pricePerformanceScore: number;
     warmCacheMatched: boolean;
+    disputePenaltyMultiplier: number;
+    lostDisputeCount90d: number;
     createdAt: Date;
   }): PlacementDecisionLog {
     this.validateCandidateCount(input.candidateCount);
@@ -82,6 +88,8 @@ export class PlacementDecisionLog {
       input.selectionScore,
       input.pricePerformanceScore,
       input.warmCacheMatched,
+      input.disputePenaltyMultiplier,
+      input.lostDisputeCount90d,
       null,
       input.createdAt
     );
@@ -110,6 +118,8 @@ export class PlacementDecisionLog {
       null,
       null,
       null,
+      null,
+      null,
       input.rejectionReason,
       input.createdAt
     );
@@ -128,6 +138,8 @@ export class PlacementDecisionLog {
       selectionScore: this.selectionScore,
       pricePerformanceScore: this.pricePerformanceScore,
       warmCacheMatched: this.warmCacheMatched,
+      disputePenaltyMultiplier: this.disputePenaltyMultiplier,
+      lostDisputeCount90d: this.lostDisputeCount90d,
       rejectionReason: this.rejectionReason,
       createdAt: this.createdAt.toISOString()
     };

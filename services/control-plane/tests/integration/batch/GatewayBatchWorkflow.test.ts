@@ -147,6 +147,8 @@ describe("gateway batch workflow", () => {
             repository.markGatewayBatchItemFailed(input),
           markGatewayBatchItemCancelled: async (input) =>
             repository.markGatewayBatchItemCancelled(input),
+          countActiveGatewayBatches: async (input) =>
+            repository.countActiveGatewayBatches(input),
           claimNextGatewayBatch: async () => {
             const batch = await repository.findGatewayBatchJobById(
               createdBatch.batch.id

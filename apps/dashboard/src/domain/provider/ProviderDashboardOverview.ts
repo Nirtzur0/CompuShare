@@ -13,6 +13,9 @@ export interface ProviderDashboardOverviewSnapshot {
   organizationId: string;
   actorRole: "owner" | "admin" | "developer" | "finance";
   activeNodeCount: number;
+  activeDisputeCount: number;
+  activeDisputeHoldUsd: string;
+  recentLostDisputeCount90d: number;
   healthSummary: {
     healthy: number;
     degraded: number;
@@ -58,6 +61,10 @@ export class ProviderDashboardOverview {
     return `Provider overview for ${this.snapshot.organizationId}`;
   }
 
+  public get organizationId(): string {
+    return this.snapshot.organizationId;
+  }
+
   public get balanceCards(): readonly {
     label: string;
     valueUsd: string;
@@ -82,6 +89,12 @@ export class ProviderDashboardOverview {
         valueUsd: this.snapshot.balances.withdrawableCashUsd,
         tone: "success",
         description: "Settled provider earnings ready for payout export.",
+      },
+      {
+        label: "Active dispute hold",
+        valueUsd: this.snapshot.activeDisputeHoldUsd,
+        tone: this.snapshot.activeDisputeCount > 0 ? "warning" : "neutral",
+        description: "Open, under-review, and lost disputes reduce payout eligibility.",
       },
     ];
   }
@@ -139,5 +152,17 @@ export class ProviderDashboardOverview {
     estimatedUtilizationPercent: number;
   }[] {
     return this.snapshot.estimatedUtilizationTrend;
+  }
+
+  public get activeDisputeCount(): number {
+    return this.snapshot.activeDisputeCount;
+  }
+
+  public get activeDisputeHoldUsd(): string {
+    return this.snapshot.activeDisputeHoldUsd;
+  }
+
+  public get recentLostDisputeCount90d(): number {
+    return this.snapshot.recentLostDisputeCount90d;
   }
 }

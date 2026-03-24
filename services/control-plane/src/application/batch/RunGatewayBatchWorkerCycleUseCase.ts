@@ -59,7 +59,8 @@ export class RunGatewayBatchWorkerCycleUseCase {
                   apiKeyId: batch.id,
                   issuedByUserId: batch.createdByUserId
                 },
-                request: item.body as never
+                request: item.body as never,
+                requestSource: "batch_worker"
               })
             : await this.executeEmbeddingUseCase.executeAuthenticated({
                 context: {
@@ -68,7 +69,8 @@ export class RunGatewayBatchWorkerCycleUseCase {
                   apiKeyId: batch.id,
                   issuedByUserId: batch.createdByUserId
                 },
-                request: item.body as never
+                request: item.body as never,
+                requestSource: "batch_worker"
               });
 
         await this.repository.markGatewayBatchItemCompleted({

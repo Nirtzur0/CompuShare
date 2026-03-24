@@ -7,6 +7,9 @@ describe("ProviderDashboardOverview", () => {
       organizationId: "org-123",
       actorRole: "finance",
       activeNodeCount: 3,
+      activeDisputeCount: 2,
+      activeDisputeHoldUsd: "6.10",
+      recentLostDisputeCount90d: 1,
       healthSummary: {
         healthy: 2,
         degraded: 1,
@@ -55,6 +58,10 @@ describe("ProviderDashboardOverview", () => {
       expect.objectContaining({
         label: "Withdrawable cash",
         valueUsd: "22.75",
+      }),
+      expect.objectContaining({
+        label: "Active dispute hold",
+        valueUsd: "6.10",
       }),
     ]);
     expect(overview.earningsTrend).toEqual([

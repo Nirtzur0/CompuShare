@@ -18,6 +18,10 @@ export default tseslint.config(
   ...tseslint.configs.stylisticTypeChecked,
   eslintConfigPrettier,
   {
+    files: ["**/*.js", "**/*.mjs"],
+    ...tseslint.configs.disableTypeChecked,
+  },
+  {
     files: ["**/*.ts", "**/*.tsx"],
     languageOptions: {
       parserOptions: {

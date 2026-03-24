@@ -10,6 +10,7 @@ import { IssueOrganizationApiKeyUseCase } from "../../../src/application/identit
 import { IssueOrganizationInvitationUseCase } from "../../../src/application/identity/IssueOrganizationInvitationUseCase.js";
 import { UpdateOrganizationMemberRoleUseCase } from "../../../src/application/identity/UpdateOrganizationMemberRoleUseCase.js";
 import { ExecuteChatCompletionUseCase } from "../../../src/application/gateway/ExecuteChatCompletionUseCase.js";
+import { GatewayUsageAdmissionUseCase } from "../../../src/application/gateway/GatewayUsageAdmissionUseCase.js";
 import { RecordGatewayUsageMeterEventUseCase } from "../../../src/application/metering/RecordGatewayUsageMeterEventUseCase.js";
 import { PrepareSignedChatWorkloadBundleUseCase } from "../../../src/application/workload/PrepareSignedChatWorkloadBundleUseCase.js";
 import { VerifySignedWorkloadBundleAdmissionUseCase } from "../../../src/application/workload/VerifySignedWorkloadBundleAdmissionUseCase.js";
@@ -33,6 +34,7 @@ import { IdentitySchemaInitializer } from "../../../src/infrastructure/persisten
 import { PostgresIdentityRepository } from "../../../src/infrastructure/persistence/postgres/PostgresIdentityRepository.js";
 import { HmacWorkloadBundleSignatureService } from "../../../src/infrastructure/security/HmacWorkloadBundleSignatureService.js";
 import { buildApp } from "../../../src/interfaces/http/buildApp.js";
+import { GatewayTrafficPolicy } from "../../../src/config/GatewayTrafficPolicy.js";
 
 interface PgMemModule {
   Pool: new () => Pool;
@@ -161,6 +163,12 @@ describe("POST /v1/chat/completions", () => {
         () => new Date("2026-03-15T08:39:00.000Z")
       ),
       auditLog,
+      new GatewayUsageAdmissionUseCase(
+        repository,
+        auditLog,
+        GatewayTrafficPolicy.createDefault(),
+        () => new Date("2026-03-15T08:39:30.000Z")
+      ),
       () => new Date("2026-03-15T08:40:00.000Z")
     );
     const app = buildApp({

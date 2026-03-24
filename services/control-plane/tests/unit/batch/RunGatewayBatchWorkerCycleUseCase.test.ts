@@ -128,7 +128,8 @@ describe("RunGatewayBatchWorkerCycleUseCase", () => {
           return Promise.resolve();
         },
         findGatewayFileById: () => Promise.resolve(null),
-        createGatewayBatchJob: () => Promise.resolve()
+        createGatewayBatchJob: () => Promise.resolve(),
+        countActiveGatewayBatches: () => Promise.resolve(0)
       },
       {
         executeAuthenticated: () =>
@@ -195,7 +196,8 @@ describe("RunGatewayBatchWorkerCycleUseCase", () => {
         markGatewayBatchItemCancelled: () => Promise.resolve(),
         createGatewayFile: () => Promise.resolve(),
         findGatewayFileById: () => Promise.resolve(null),
-        createGatewayBatchJob: () => Promise.resolve()
+        createGatewayBatchJob: () => Promise.resolve(),
+        countActiveGatewayBatches: () => Promise.resolve(0)
       },
       {
         executeAuthenticated: () => Promise.reject(new Error("unused"))
@@ -315,7 +317,8 @@ describe("RunGatewayBatchWorkerCycleUseCase", () => {
           return Promise.resolve();
         },
         findGatewayFileById: () => Promise.resolve(null),
-        createGatewayBatchJob: () => Promise.resolve()
+        createGatewayBatchJob: () => Promise.resolve(),
+        countActiveGatewayBatches: () => Promise.resolve(0)
       },
       {
         executeAuthenticated: () =>

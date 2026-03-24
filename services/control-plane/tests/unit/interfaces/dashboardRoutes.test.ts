@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  ComplianceOverviewAuthorizationError,
+  ComplianceOverviewCapabilityRequiredError,
+  ComplianceOverviewOrganizationNotFoundError,
+  type GetComplianceOverviewResponse
+} from "../../../src/application/dashboard/GetComplianceOverviewUseCase.js";
+import {
   ConsumerDashboardAuthorizationError,
   ConsumerDashboardCapabilityRequiredError,
   ConsumerDashboardOrganizationNotFoundError,
@@ -26,10 +32,18 @@ import {
 import { buildApp } from "../../../src/interfaces/http/buildApp.js";
 
 function createApp(input: {
+  getComplianceOverviewUseCase?: {
+    execute: (input: {
+      organizationId: string;
+      actorUserId: string;
+      environment: "development" | "staging" | "production";
+    }) => Promise<GetComplianceOverviewResponse>;
+  };
   getConsumerDashboardOverviewUseCase: {
     execute: (input: {
       organizationId: string;
       actorUserId: string;
+      environment: "development" | "staging" | "production";
     }) => Promise<GetConsumerDashboardOverviewResponse>;
   };
   getProviderDashboardOverviewUseCase: {
@@ -85,6 +99,11 @@ function createApp(input: {
     },
     getConsumerDashboardOverviewUseCase:
       input.getConsumerDashboardOverviewUseCase,
+    ...(input.getComplianceOverviewUseCase === undefined
+      ? {}
+      : {
+          getComplianceOverviewUseCase: input.getComplianceOverviewUseCase
+        }),
     getProviderDashboardOverviewUseCase:
       input.getProviderDashboardOverviewUseCase,
     ...(input.getPrivateConnectorDashboardUseCase === undefined
@@ -160,6 +179,9 @@ describe("dashboard routes", () => {
               organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
               actorRole: "finance",
               activeNodeCount: 2,
+              activeDisputeCount: 1,
+              activeDisputeHoldUsd: "4.25",
+              recentLostDisputeCount90d: 2,
               healthSummary: {
                 healthy: 1,
                 degraded: 1,
@@ -197,6 +219,55 @@ describe("dashboard routes", () => {
         actorRole: "finance",
         earningsTrend: [],
         estimatedUtilizationTrend: []
+      }
+    });
+  });
+
+  it("returns the compliance overview snapshot", async () => {
+    const app = createApp({
+      getComplianceOverviewUseCase: {
+        execute: () =>
+          Promise.resolve({
+            overview: {
+              organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18",
+              actorRole: "finance",
+              registry: {
+                generatedAt: "2026-03-10T12:00:00.000Z",
+                legalEntityName: "CompuShare, Inc.",
+                privacyEmail: "privacy@example.com",
+                securityEmail: "security@example.com",
+                dpaEffectiveDate: "2026-03-10",
+                dpaVersion: "2026.03",
+                environment: "development",
+                platformSubprocessors: [],
+                providerSubprocessors: [],
+                providerAppendixStatus: "none_routable"
+              }
+            }
+          })
+      },
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/compliance-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f&environment=development"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      overview: {
+        actorRole: "finance",
+        registry: {
+          providerAppendixStatus: "none_routable"
+        }
       }
     });
   });
@@ -323,6 +394,78 @@ describe("dashboard routes", () => {
     expect(response.json()).toMatchObject({
       error: "VALIDATION_ERROR"
     });
+  });
+
+  it("maps compliance overview authorization and capability errors", async () => {
+    const capabilityApp = createApp({
+      getComplianceOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new ComplianceOverviewCapabilityRequiredError())
+      },
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      }
+    });
+
+    const capabilityResponse = await capabilityApp.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/compliance-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f&environment=development"
+    });
+
+    expect(capabilityResponse.statusCode).toBe(403);
+
+    const authApp = createApp({
+      getComplianceOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new ComplianceOverviewAuthorizationError())
+      },
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      }
+    });
+
+    const authResponse = await authApp.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/compliance-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f&environment=development"
+    });
+
+    expect(authResponse.statusCode).toBe(403);
+
+    const notFoundApp = createApp({
+      getComplianceOverviewUseCase: {
+        execute: () =>
+          Promise.reject(
+            new ComplianceOverviewOrganizationNotFoundError(
+              "87057cb0-e0ca-4095-9f25-dd8103408b18"
+            )
+          )
+      },
+      getConsumerDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused consumer dashboard path"))
+      },
+      getProviderDashboardOverviewUseCase: {
+        execute: () =>
+          Promise.reject(new Error("unused provider dashboard path"))
+      }
+    });
+
+    const notFoundResponse = await notFoundApp.inject({
+      method: "GET",
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/compliance-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f&environment=development"
+    });
+
+    expect(notFoundResponse.statusCode).toBe(404);
   });
 
   it("returns 400 for invalid provider dashboard query params", async () => {
@@ -632,7 +775,18 @@ describe("dashboard routes", () => {
                 withdrawableCashUsd: "0.00"
               },
               usageTrend: [],
-              latencyByModel: []
+              latencyByModel: [],
+              gatewayQuotaStatus: {
+                environment: "development",
+                fixedDayStartedAt: "2026-03-10T00:00:00.000Z",
+                fixedDayResetsAt: "2026-03-11T00:00:00.000Z",
+                fixedDayTokenLimit: 2000000,
+                fixedDayUsedTokens: 2048,
+                fixedDayRemainingTokens: 1997952,
+                syncRequestsPerMinutePerApiKey: 60,
+                maxBatchItemsPerJob: 500,
+                maxActiveBatchesPerOrganizationEnvironment: 5
+              }
             }
           })
       },
@@ -644,7 +798,7 @@ describe("dashboard routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f&environment=development"
     });
 
     expect(response.statusCode).toBe(200);
@@ -655,7 +809,10 @@ describe("dashboard routes", () => {
           lifetimeFundedUsd: "100.00"
         },
         usageTrend: [],
-        latencyByModel: []
+        latencyByModel: [],
+        gatewayQuotaStatus: {
+          environment: "development"
+        }
       }
     });
   });
@@ -678,7 +835,7 @@ describe("dashboard routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f&environment=development"
     });
 
     expect(response.statusCode).toBe(404);
@@ -701,7 +858,7 @@ describe("dashboard routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f&environment=development"
     });
 
     expect(response.statusCode).toBe(403);
@@ -723,7 +880,7 @@ describe("dashboard routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f&environment=development"
     });
 
     expect(response.statusCode).toBe(403);
@@ -745,7 +902,7 @@ describe("dashboard routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f&environment=development"
     });
 
     expect(response.statusCode).toBe(500);
@@ -768,7 +925,7 @@ describe("dashboard routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/v1/organizations/not-a-uuid/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f"
+      url: "/v1/organizations/not-a-uuid/dashboard/consumer-overview?actorUserId=345db7ff-1355-43c7-b333-6ae1e7246c3f&environment=development"
     });
 
     expect(response.statusCode).toBe(400);
@@ -791,7 +948,7 @@ describe("dashboard routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=not-a-uuid"
+      url: "/v1/organizations/87057cb0-e0ca-4095-9f25-dd8103408b18/dashboard/consumer-overview?actorUserId=not-a-uuid&environment=development"
     });
 
     expect(response.statusCode).toBe(400);

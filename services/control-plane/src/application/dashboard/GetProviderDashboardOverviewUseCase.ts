@@ -82,6 +82,12 @@ export class GetProviderDashboardOverviewUseCase {
       await this.repository.listProviderInventorySummaries(organizationId);
     const walletSummary =
       await this.repository.getOrganizationWalletSummary(organizationId);
+    const disputeSummary = await this.repository.getProviderDisputeSummary({
+      providerOrganizationId: organizationId,
+      lostSinceInclusive: new Date(
+        viewedAt.getTime() - 90 * 24 * 60 * 60 * 1000
+      )
+    });
     const trendWindow = this.resolveTrendWindow(viewedAt);
     const earningsTrend = await this.repository.listProviderDailyEarningsTrend({
       organizationId,
@@ -106,6 +112,9 @@ export class GetProviderDashboardOverviewUseCase {
         summary.toSnapshot()
       ),
       balances: walletSummary.toSnapshot(),
+      activeDisputeCount: disputeSummary.activeDisputeCount,
+      activeDisputeHoldUsd: disputeSummary.activeDisputeHold.toUsdString(),
+      recentLostDisputeCount90d: disputeSummary.recentLostDisputeCount,
       earningsTrend: this.buildEarningsTrend({
         dates: trendWindow.dates,
         earningsTrend
@@ -127,7 +136,10 @@ export class GetProviderDashboardOverviewUseCase {
         activeNodeCount: snapshot.activeNodeCount,
         healthyNodeCount: snapshot.healthSummary.healthy,
         degradedNodeCount: snapshot.healthSummary.degraded,
-        pausedNodeCount: snapshot.healthSummary.paused
+        pausedNodeCount: snapshot.healthSummary.paused,
+        activeDisputeCount: snapshot.activeDisputeCount,
+        activeDisputeHoldUsd: snapshot.activeDisputeHoldUsd,
+        recentLostDisputeCount90d: snapshot.recentLostDisputeCount90d
       }
     });
 

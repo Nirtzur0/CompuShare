@@ -29,6 +29,9 @@ export interface ProviderDashboardOverviewSnapshot {
   organizationId: string;
   actorRole: OrganizationRole;
   activeNodeCount: number;
+  activeDisputeCount: number;
+  activeDisputeHoldUsd: string;
+  recentLostDisputeCount90d: number;
   healthSummary: {
     healthy: number;
     degraded: number;
@@ -55,6 +58,9 @@ export class ProviderDashboardOverview {
     actorRole: OrganizationRole;
     inventorySummaries: readonly ProviderInventorySummarySnapshot[];
     balances: OrganizationWalletSummarySnapshot;
+    activeDisputeCount: number;
+    activeDisputeHoldUsd: string;
+    recentLostDisputeCount90d: number;
     earningsTrend: ProviderDashboardEarningsTrendPointSnapshot[];
     estimatedUtilizationTrend: ProviderDashboardEstimatedUtilizationTrendPointSnapshot[];
   }): ProviderDashboardOverview {
@@ -104,6 +110,9 @@ export class ProviderDashboardOverview {
       organizationId: input.organizationId,
       actorRole: input.actorRole,
       activeNodeCount: nodes.length,
+      activeDisputeCount: input.activeDisputeCount,
+      activeDisputeHoldUsd: input.activeDisputeHoldUsd,
+      recentLostDisputeCount90d: input.recentLostDisputeCount90d,
       healthSummary,
       trustTierSummary,
       balances: input.balances,
@@ -118,6 +127,9 @@ export class ProviderDashboardOverview {
       organizationId: this.snapshot.organizationId,
       actorRole: this.snapshot.actorRole,
       activeNodeCount: this.snapshot.activeNodeCount,
+      activeDisputeCount: this.snapshot.activeDisputeCount,
+      activeDisputeHoldUsd: this.snapshot.activeDisputeHoldUsd,
+      recentLostDisputeCount90d: this.snapshot.recentLostDisputeCount90d,
       healthSummary: {
         ...this.snapshot.healthSummary
       },

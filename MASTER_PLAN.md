@@ -1389,6 +1389,9 @@ This service owns the first MVP control-plane slices until extraction pressure j
 - **ADR-0009**: Kubernetes/Kata first for vetted clusters; private agents for VM-based providers later.
 - **ADR-0010**: Stripe Connect first for payouts; Tipalti/Adyen optional later for expanded geographies.
 - **ADR-0011**: Enterprise private connector execution uses signed execution grants instead of marketplace workload bundles.
+- **ADR-0012**: Compliance transparency and DPA exports are generated from repo-tracked legal documents, typed settings, and deterministic read models.
+- **ADR-0013**: Provider disputes are modeled as a first-class ledger-adjacent register; active dispute exposure reduces payout eligibility and routing priority without mutating wallet summary balances, and Stripe chargebacks link to buyer charges by `paymentReference` with manual provider allocation.
+- **ADR-0014**: Gateway abuse controls use explicit admission records with fixed-window request limits, fixed-day token quotas, and batch-ingress structural caps; sync requests reserve quota before upstream dispatch and settle with actual usage after response, while batch items consume the same token quota during worker execution without marketplace fallbacks.
 
 ### Recommended stack
 
@@ -1508,6 +1511,7 @@ This service owns the first MVP control-plane slices until extraction pressure j
 - [ ] **E7** Provider and consumer dashboard UX
 - [ ] **E8** Enterprise private connector mode and private-cluster burst
 - [ ] **E9** Compliance program, DPA/subprocessor controls, and audit readiness
+- [ ] **E10** Launch operations readiness and go-live procedures
 
 ---
 
@@ -2000,6 +2004,50 @@ This service owns the first MVP control-plane slices until extraction pressure j
     - Dashboard: `README embeddings curl + files/batches workflow + batch worker startup documented`
     - ADR: `none`
   - **Done criteria:** embeddings and batch are live end-to-end through the control-plane and provider runtime, batch execution uses the same real gateway path as sync requests, seed/demo output documents runnable embeddings and batch flows, and workspace quality gates are green.
+- [x] `E4-S3` Gateway rate limit and quota hardening
+  - **Epic:** `E4`
+  - **Sprint:** `SPRINT-03`
+  - **Owner:** `agent`
+  - **Depends on:** `E4-S1`, `E4-S2`, `E5-S1d`, `E7-S1`, `ADR-0007`, `ADR-0014`
+  - **References reviewed:**
+    - [RFC 6585: Additional HTTP Status Codes](https://www.rfc-editor.org/rfc/rfc6585)
+    - [IETF HTTPAPI RateLimit header draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/)
+    - [OWASP API Security Top 10 2023: Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/)
+  - **Acceptance criteria:**
+    - [x] Sync gateway requests enforce deterministic admission before upstream dispatch
+      - [x] `POST /v1/chat/completions` and `POST /v1/embeddings` reject over-limit requests with `429 Too Many Requests`, structured error bodies, and `Retry-After`
+      - [x] Sync admission uses per-API-key fixed-window request limits and per-organization/environment fixed-day token quotas without hidden fallbacks
+      - [x] Chat and embedding quota checks reserve estimated usage before dispatch and settle with actual usage after successful upstream responses
+    - [x] Batch ingress cannot bypass gateway hardening
+      - [x] Batch creation rejects input files whose parsed item count exceeds the configured per-batch ceiling
+      - [x] Batch creation rejects new jobs when the organization/environment already exceeds the configured active-batch ceiling
+      - [x] Batch worker execution consumes the same fixed-day token quota as sync traffic and surfaces over-quota items as deterministic batch failures
+    - [x] Buyer-facing visibility and observability are explicit
+      - [x] Consumer dashboard overview includes additive gateway quota status for the active environment
+      - [x] Audit logs emit structured rejection events for request-rate, token-quota, and batch-ingress denials without logging prompts or secrets
+      - [x] README and seed/demo docs show the configured controls, low-limit local verification flow, and representative `429` response shape
+  - **Implementation slices:**
+    - [x] `E4-S3a` Gateway sync admission register, request-rate limits, and token quota enforcement
+    - [x] `E4-S3b` Batch item ceilings, active-batch caps, worker quota enforcement, and consumer quota snapshot
+    - [x] `E4-S3c` Docs, demo evidence, and launch-prep verification
+  - **KPIs:**
+    - correctness: `100%` acceptance tests pass
+    - changed-code coverage: `>= 90%`
+    - critical-path coverage: `>= 95%`
+    - type-check errors: `0`
+    - lint/format violations: `0`
+    - flaky reruns: `0 / 20`
+    - p95 added sync admission overhead before upstream dispatch: `< 20 ms`
+    - p95 consumer quota snapshot query latency: `< 150 ms`
+    - over-limit false-accept rate in deterministic fixtures: `0`
+    - over-limit false-reject rate in deterministic fixtures: `0`
+  - **Evidence:**
+    - PR: `blocked locally: workspace has no visible git repository metadata`
+    - CI: `local evidence only: pnpm --filter @compushare/control-plane exec vitest run tests/unit/gateway/GatewayUsageAdmissionUseCase.test.ts tests/unit/domain/gateway/GatewayUsageAdmission.test.ts tests/unit/dashboard/ConsumerSpendSummary.test.ts tests/unit/dashboard/ProviderDashboardOverview.test.ts && pnpm --filter @compushare/control-plane lint && pnpm --filter @compushare/control-plane typecheck && pnpm --filter @compushare/control-plane test && pnpm --filter @compushare/dashboard lint && pnpm --filter @compushare/dashboard typecheck && pnpm --filter @compushare/dashboard test`
+    - Benchmark: `control-plane: 135 files / 735 tests / 92.11% lines-statements / 90.01% branches / 92.97% functions; dashboard: 21 files / 45 tests / 97.32% lines-statements / 90.28% branches / 95.95% functions`
+    - Dashboard: `consumer overview now requires environment-scoped quota context; README documents gateway knobs, representative 429 responses, and low-limit verification; seed/demo consumer URL includes environment and renders additive gateway quota state`
+    - ADR: `ADR-0014`
+  - **Done criteria:** sync and batch admission controls are enforced with deterministic 429/error behavior, buyer quota visibility is live, audit coverage is in place, and workspace quality gates are green.
 - [ ] `E5-S2` Stripe Connect onboarding and payout runbook
   - **Epic:** `E5`
   - **Sprint:** `SPRINT-02`
@@ -2041,10 +2089,50 @@ This service owns the first MVP control-plane slices until extraction pressure j
     - Dashboard: `README Stripe Connect sandbox onboarding, Connect webhook forwarding, and payout runbook documented`
     - ADR: `ADR-0005`, `ADR-0010`
   - **Failure analysis (only if needed):**
-    - root cause: `A live sandbox execution attempt on 2026-03-10 remains blocked before onboarding because the local workspace has no services/control-plane/.env, no usable STRIPE_* variables in process environment, and no Stripe CLI auth config at ~/.config/stripe/config.toml. A direct stripe login attempt now prompts for an API key, so authenticated sandbox account access and funded test balance are still missing.`
+    - root cause: `A live sandbox execution attempt remains blocked as of 2026-03-11 before onboarding because the local workspace still has no services/control-plane/.env, no usable STRIPE_* variables in process environment, and no Stripe CLI auth config at ~/.config/stripe/config.toml. 'stripe config --list' reports the missing config file, so authenticated sandbox account access and funded test balance are still unavailable on this machine.`
     - redesign decision: `Keep the real Stripe Connect implementation, provider-org payout availability read model, CLI payout execution path, and webhook reconciliation in place; defer only the external evidence slice.`
-    - next action: `Deferred until Stripe sandbox access is available again. Then create services/control-plane/.env with STRIPE_SECRET_KEY, STRIPE_CONNECT_RETURN_URL_BASE, and STRIPE_CONNECT_REFRESH_URL_BASE, start stripe listen --forward-connect-to /v1/webhooks/stripe/connect to obtain STRIPE_WEBHOOK_SECRET, complete one funded sandbox onboarding + payout run, and record the connected account ID, payout/disbursement ID, webhook event IDs, and rerun idempotency evidence before closing E5-S2 and E5-S2c.`
+    - next action: `Deferred until Stripe sandbox access is available again. Then create services/control-plane/.env with STRIPE_SECRET_KEY, STRIPE_CONNECT_RETURN_URL_BASE, and STRIPE_CONNECT_REFRESH_URL_BASE, authenticate the Stripe CLI, start stripe listen --forward-connect-to http://127.0.0.1:3100/v1/webhooks/stripe/connect to obtain STRIPE_WEBHOOK_SECRET, complete one funded sandbox onboarding + payout run, and record the connected account ID, payout/disbursement ID, webhook event IDs, rerun idempotency evidence, and the 2026-03-11 narrow preflight checks (ProviderPayoutUseCases, stripeWebhookRoutes, financeRoutes, control-plane typecheck) before closing E5-S2 and E5-S2c.`
   - **Done criteria:** provider onboarding/status APIs, payout-run CLI, and webhook reconciliation are implemented with green workspace gates, and live sandbox evidence for one successful onboarding + payout run is recorded.
+- [x] `E5-S3` Provider dispute workflow and chargeback reserve management
+  - **Epic:** `E5`
+  - **Sprint:** `SPRINT-03`
+  - **Owner:** `agent`
+  - **Depends on:** `E5-S1`, `E5-S2b`, `E3-S2`, `E7-S1`, `ADR-0005`, `ADR-0008`, `ADR-0010`, `ADR-0013`
+  - **References reviewed:**
+    - [Stripe disputes: how disputes work](https://docs.stripe.com/disputes/how-disputes-work)
+    - [Stripe disputes API](https://docs.stripe.com/disputes/api)
+    - [Stripe dispute object](https://docs.stripe.com/api/disputes/object)
+    - [Stripe event types for disputes](https://docs.stripe.com/api/events/types)
+    - [Stripe connected account reserves](https://docs.stripe.com/connect/connected-account-reserves)
+  - **Acceptance criteria:**
+    - [x] Buyer finance members can create and list settlement disputes and manual chargeback disputes through `POST /v1/organizations/:organizationId/finance/provider-disputes` and `GET /v1/organizations/:organizationId/finance/provider-disputes?actorUserId=...&status=...`
+    - [x] Chargeback disputes can ingest or update from `POST /v1/webhooks/stripe/disputes`, keyed by `paymentReference`, while orphaned Stripe events are recorded and audited without synthesizing provider allocations
+    - [x] Buyer finance members can record chargeback provider allocations and dispute status transitions through dedicated finance routes, with deterministic transition rules and allocation totals capped at the disputed amount
+    - [x] Provider payout availability deducts active dispute exposure from `eligiblePayoutUsd` while leaving existing wallet summary balances unchanged and explicitly exposes `activeDisputeHoldUsd`
+    - [x] Placement candidate scoring and sync placement logs apply a deterministic lost-dispute penalty over the last `90 days`
+    - [x] Buyer and provider dashboard pages expose dispute visibility with buyer mutation controls, provider read-only summaries, and explicit active-hold/recent-lost-dispute counts
+  - **Implementation slices:**
+    - [x] `E5-S3a` Add dispute domain, persistence, finance APIs, and Stripe dispute webhook intake
+    - [x] `E5-S3b` Deduct active dispute exposure from payout eligibility and apply lost-dispute placement penalty/logging
+    - [x] `E5-S3c` Add buyer/provider dispute dashboard pages, demo/docs refresh, and KPI evidence
+  - **KPIs:**
+    - correctness: `100%` acceptance tests pass
+    - changed-code coverage: `>= 90%`
+    - critical-path coverage: `>= 95%`
+    - type-check errors: `0`
+    - lint/format violations: `0`
+    - flaky reruns: `0 / 20`
+    - payout-eligibility deduction mismatch for active disputes: `0`
+    - placement rerun diff for identical dispute inputs: `0`
+    - orphaned Stripe dispute event false-silent rate: `0`
+    - p95 dispute list + overview latency on local fixture: `< 200 ms`
+  - **Evidence:**
+    - PR: `blocked locally: workspace has no visible git repository metadata`
+    - CI: `local evidence only on 2026-03-10: pnpm --filter @compushare/control-plane typecheck && pnpm --filter @compushare/control-plane lint && pnpm --filter @compushare/control-plane test && pnpm --filter @compushare/dashboard lint && pnpm --filter @compushare/dashboard typecheck && pnpm --filter @compushare/dashboard test`
+    - Benchmark: `control-plane local dispute workflow evidence on 2026-03-10: 133 test files / 713 tests / 92.91% lines-statements / 90.00% branches / 93.29% functions; dashboard local dispute UI evidence on 2026-03-10: 21 test files / 45 tests / 97.28% lines-statements / 90.26% branches / 95.93% functions`
+    - Dashboard: `README dispute workflow docs refreshed; seed demo prints buyer/provider dispute dashboard URLs; buyer dispute operations available at /consumer/disputes and provider dispute visibility available at /provider/disputes`
+    - ADR: `ADR-0013`
+  - **Done criteria:** finance dispute workflow is live for settlement and chargeback disputes, active dispute exposure affects payout eligibility and placement scoring deterministically, buyer/provider dashboard views exist, and repository-standard quality gates are green.
 - [x] `E6-S2` Fraud graph and wash-trading detector
   - **Epic:** `E6`
   - **Sprint:** `SPRINT-02`
@@ -2121,9 +2209,9 @@ This service owns the first MVP control-plane slices until extraction pressure j
     - Dashboard: `README provider pricing simulator demo documents GET /v1/organizations/:organizationId/dashboard/provider-pricing-simulator and the seeded alpha demo now prints a provider pricing simulator URL`
     - ADR: `ADR-0005`
   - **Done criteria:** provider pricing simulator data is live through the control-plane and dashboard, seeded demo output includes a pricing simulator URL, and repository-standard quality gates are green.
-- [ ] `E8-S1` Enterprise private connector mode
+- [x] `E8-S1` Enterprise private connector mode
   - **Epic:** `E8`
-  - **Sprint:** `SPRINT-03`
+  - **Sprint:** `SPRINT-02`
   - **Owner:** `agent`
   - **Depends on:** `E1-S1`, `E3-S1`, `E4-S1a`, `E6-S1`, `E7-S1d`, `ADR-0001`, `ADR-0007`, `ADR-0009`, `ADR-0011`
   - **References reviewed:**
@@ -2133,15 +2221,15 @@ This service owns the first MVP control-plane slices until extraction pressure j
     - [SPIRE docs](https://spiffe.io/docs/latest/)
     - [OpenRouter provider selection](https://openrouter.ai/docs/guides/routing/provider-selection)
   - **Acceptance criteria:**
-    - [ ] Buyer owner/admin/finance members can create and view buyer-scoped private connectors via control-plane APIs and `/consumer/private-connectors?organizationId=...&actorUserId=...`
-    - [ ] `POST /v1/chat/completions` honors `x-compushare-private-connector-id` by routing only to the named ready connector with no marketplace fallback
-    - [ ] Both `cluster` and `byok_api` connector modes execute chat requests through the extended runtime service while keeping BYOK secrets only in the customer-operated runtime environment
-    - [ ] Private connector executions emit audit and metering records with `executionTargetType=private_connector` and never create provider settlement or payout side effects
-    - [ ] Connector check-ins and runtime-admission verification keep readiness explicit and observable through the control-plane and dashboard
+    - [x] Buyer owner/admin/finance members can create and view buyer-scoped private connectors via control-plane APIs and `/consumer/private-connectors?organizationId=...&actorUserId=...`
+    - [x] `POST /v1/chat/completions` honors `x-compushare-private-connector-id` by routing only to the named ready connector with no marketplace fallback
+    - [x] Both `cluster` and `byok_api` connector modes execute chat requests through the extended runtime service while keeping BYOK secrets only in the customer-operated runtime environment
+    - [x] Private connector executions emit audit and metering records with `executionTargetType=private_connector` and never create provider settlement or payout side effects
+    - [x] Connector check-ins and runtime-admission verification keep readiness explicit and observable through the control-plane and dashboard
   - **Implementation slices:**
-    - [ ] `E8-S1a` Add private connector registry, signed execution grants, and gateway private routing in the control-plane
-    - [ ] `E8-S1b` Extend the runtime service for `cluster` and `byok_api` private connector execution plus connector check-ins
-    - [ ] `E8-S1c` Add buyer dashboard, demo/docs evidence, and KPI proof for private connector mode
+    - [x] `E8-S1a` Add private connector registry, signed execution grants, and gateway private routing in the control-plane
+    - [x] `E8-S1b` Extend the runtime service for `cluster` and `byok_api` private connector execution plus connector check-ins
+    - [x] `E8-S1c` Add buyer dashboard, demo/docs evidence, and KPI proof for private connector mode
   - **KPIs:**
     - correctness: `100%` acceptance tests pass
     - changed-code coverage: `>= 90%`
@@ -2154,13 +2242,88 @@ This service owns the first MVP control-plane slices until extraction pressure j
     - private-to-marketplace fallback count when `x-compushare-private-connector-id` is present: `0`
     - private execution settlement leakage count: `0`
   - **Evidence:**
-    - PR:
-    - CI:
-    - Benchmark:
-    - Dashboard:
+    - PR: `blocked locally: workspace has no visible git repository metadata`
+    - CI: `local evidence only: pnpm --filter @compushare/control-plane lint && pnpm --filter @compushare/control-plane typecheck && pnpm --filter @compushare/control-plane test && pnpm --filter @compushare/provider-runtime lint && pnpm --filter @compushare/provider-runtime typecheck && pnpm --filter @compushare/provider-runtime test && pnpm --filter @compushare/dashboard lint && pnpm --filter @compushare/dashboard typecheck && pnpm --filter @compushare/dashboard test`
+    - Benchmark: `control-plane on 2026-03-10: 116 test files / 631 tests / 92.36% lines-statements / 90.19% branches / 93.39% functions; provider-runtime on 2026-03-10: 7 test files / 69 tests / 99.88% lines-statements / 90.21% branches / 96.42% functions; dashboard on 2026-03-10: 15 test files / 30 tests / 98.24% lines-statements / 92.10% branches / 97.80% functions`
+    - Dashboard: `README documents /consumer/private-connectors plus the seeded alpha demo now prints a buyer private connector dashboard URL and private-routing curl example with x-compushare-private-connector-id`
     - ADR: `ADR-0011`
   - **Done criteria:** buyer-scoped private connectors are live in the control-plane, runtime, and dashboard; both connector modes are exercised locally; private executions stay out of provider settlement/payout paths; and repository-standard gates are green.
-- [ ] `E9-S1` Subprocessor registry and DPA export pack
+- [x] `E9-S1` Subprocessor registry and DPA export pack
+  - **Epic:** `E9`
+  - **Sprint:** `SPRINT-03`
+  - **Owner:** `agent`
+  - **Depends on:** `E1-S1`, `E2-S1`, `E3-S1`, `E7-S1e`, `ADR-0012`
+  - **References reviewed:**
+    - [GDPR, Article 28 and processor obligations](https://eur-lex.europa.eu/eli/reg/2016/679/2016-05-04)
+    - [European Commission SCC overview](https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection/standard-contractual-clauses-scc_lt)
+    - [European Commission publications on Article 28 controller/processor SCCs](https://commission.europa.eu/publications/standard-contractual-clauses-international-transfers_en)
+    - [ICO contracts and liabilities between controllers and processors](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/accountability-and-governance/contracts-and-liabilities-between-controllers-and-processors-multi/)
+    - [EDPB Guidelines 07/2020 on controller and processor concepts](https://www.edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-072020-concepts-controller-and-processor-gdpr_en)
+  - **Acceptance criteria:**
+    - [x] Public route `GET /v1/compliance/subprocessors` returns a deterministic platform subprocessor registry in stable order with vendor, purpose, data categories, regions, transfer mechanism, status, and review metadata
+    - [x] Buyer `owner` / `admin` / `finance` members can load `GET /v1/organizations/:organizationId/dashboard/compliance-overview?actorUserId=...&environment=...` and view platform plus environment-scoped provider subprocessors
+    - [x] Authenticated buyer members can export `GET /v1/organizations/:organizationId/compliance/dpa-export?actorUserId=...&environment=...` as deterministic `text/markdown` containing the DPA body, TOM appendix, platform appendix, and provider appendix
+    - [x] Provider appendix includes only organizations currently routable in the selected environment and renders an explicit empty-state statement when none exist
+    - [x] Compliance settings are required typed configuration with deterministic startup validation and no hardcoded legal/contact fallbacks
+    - [x] Compliance overview and export generation emit audit events without exposing secrets or prompt content
+  - **Implementation slices:**
+    - [x] `E9-S1a` Add control-plane compliance settings, typed subprocessor registry, provider appendix aggregation, and public/org-scoped routes
+    - [x] `E9-S1b` Generate deterministic markdown DPA export packs from repo-tracked legal markdown and typed snapshots
+    - [x] `E9-S1c` Add public and buyer dashboard pages, demo/docs updates, and KPI evidence for compliance transparency
+  - **KPIs:**
+    - correctness: `100%` acceptance tests pass
+    - changed-code coverage: `>= 90%`
+    - critical-path coverage: `>= 95%`
+    - type-check errors: `0`
+    - lint/format violations: `0`
+    - flaky reruns: `0 / 20`
+    - p95 public subprocessor registry latency on local fixture: `< 150 ms`
+    - p95 compliance overview latency on local fixture: `< 200 ms`
+    - p95 markdown export generation latency on local fixture: `< 250 ms`
+    - compliance export nondeterminism count across repeated identical runs: `0 / 20`
+  - **Evidence:**
+    - PR: `blocked locally: workspace has no visible git repository metadata`
+    - CI: `local evidence only: pnpm --filter @compushare/control-plane lint && pnpm --filter @compushare/control-plane typecheck && pnpm --filter @compushare/control-plane test && pnpm --filter @compushare/dashboard lint && pnpm --filter @compushare/dashboard typecheck && pnpm --filter @compushare/dashboard test`
+    - Benchmark: `control-plane on 2026-03-10: 123 test files / 652 tests / 92.57% lines-statements / 90.05% branches / 93.62% functions; dashboard on 2026-03-10: 17 test files / 36 tests / 96.88% lines-statements / 90.67% branches / 96.58% functions`
+    - Dashboard: `README documents /subprocessors and /consumer/compliance; seedRunnableAlphaDemo prints the public registry URL, buyer compliance dashboard URL, and a curl command for GET /v1/organizations/:organizationId/compliance/dpa-export`
+    - ADR: `ADR-0012`
+  - **Done criteria:** public transparency page is live, buyer compliance overview and markdown export are live, repo-tracked legal markdown exists, and repository-standard gates are green.
+- [x] `E10-S1` Operational runbooks and operations index
+  - **Epic:** `E10`
+  - **Sprint:** `SPRINT-03`
+  - **Owner:** `agent`
+  - **Depends on:** `E4-S3`, `E5-S3`, `E8-S1`, `E9-S1`
+  - **References reviewed:**
+    - [NIST incident response program / SP 800-61 Rev. 3 overview](https://csrc.nist.gov/projects/incident-response)
+    - [CISA Federal Government Cybersecurity Incident and Vulnerability Response Playbooks](https://www.cisa.gov/resources-tools/resources/federal-government-cybersecurity-incident-and-vulnerability-response-playbooks)
+    - [Google SRE: Managing Incidents](https://sre.google/sre-book/managing-incidents/)
+    - [Google Cloud support best practices](https://docs.cloud.google.com/support/docs/best-practices)
+  - **Acceptance criteria:**
+    - [x] Canonical repo-tracked markdown runbooks exist under `docs/runbooks/` for incident response, on-call rotation, and support escalation with launch-specific severity, escalation, and ownership guidance
+    - [x] Public dashboard route `/operations` renders a typed index of the canonical runbooks, their covered release gates, and the repo-tracked document paths without introducing new APIs or auth
+    - [x] Seed/demo output and `README.md` expose the operations index and canonical runbook references so launch-prep evidence is discoverable from the repository alone
+    - [x] Release checklist items `Incident response runbook complete`, `On-call rotation defined`, and `Support macros and escalation paths defined` are evidenced and reconciled
+  - **Implementation slices:**
+    - [x] `E10-S1a` Add canonical repo-tracked operational runbooks under `docs/runbooks/`
+    - [x] `E10-S1b` Add a public dashboard operations index plus landing-page and demo/README discoverability
+    - [x] `E10-S1c` Add tests, sprint evidence, and release-gate reconciliation for launch operations readiness
+  - **KPIs:**
+    - correctness: `100%` acceptance tests pass
+    - changed-code coverage: `>= 90%`
+    - critical-path coverage: `>= 95%`
+    - type-check errors: `0`
+    - lint/format violations: `0`
+    - flaky reruns: `0 / 20`
+    - operations index route availability in local SSR tests: `100%`
+    - runbook catalog doc-path existence mismatches: `0`
+    - seeded demo omission rate for operations URL: `0`
+  - **Evidence:**
+    - PR: `blocked locally: workspace has no visible git repository metadata`
+    - CI: `local evidence only on 2026-03-11: pnpm --filter @compushare/dashboard exec vitest run tests/unit/domain/OperationsRunbookCatalog.test.ts tests/unit/interfaces/OperationsIndexScreen.test.tsx tests/unit/interfaces/HomePage.test.tsx && pnpm --filter @compushare/control-plane exec vitest run tests/unit/interfaces/seedRunnableAlphaDemo.test.ts tests/integration/demo/SeedRunnableAlphaDemo.test.ts && pnpm --filter @compushare/dashboard lint && pnpm --filter @compushare/dashboard typecheck && pnpm --filter @compushare/dashboard test && pnpm --filter @compushare/control-plane lint && pnpm --filter @compushare/control-plane typecheck && pnpm --filter @compushare/control-plane test`
+    - Benchmark: `dashboard on 2026-03-11: 24 test files / 49 tests / 97.45% lines-statements / 90.46% branches / 96.00% functions; control-plane on 2026-03-11: 135 test files / 735 tests / 92.11% lines-statements / 90.01% branches / 92.97% functions`
+    - Dashboard: `public operations index available at /operations; README documents the index plus canonical docs/runbooks/*.md sources; SeedRunnableAlphaDemo and its CLI summary emit the operations URL`
+    - ADR: `none`
+  - **Done criteria:** canonical runbook markdown exists, the public operations index is live and documented, demo output includes the operations URL, release-gate evidence is recorded, and repository-standard gates are green.
 
 ---
 
@@ -2169,7 +2332,7 @@ This service owns the first MVP control-plane slices until extraction pressure j
 ### `SPRINT-01` — Foundations for vetted-only private beta
 **Goal:** prove the core loop: enroll provider -> route request -> meter usage -> show balances.
 
-- [ ] Land ADR set `ADR-0001` to `ADR-0010`
+- [ ] Land ADR set `ADR-0001` to `ADR-0014`
 - [x] Deliver `E1-S1a` bootstrap slice: canonical control-plane service + persisted organization creation
 - [x] Deliver `E1-S1b1` invitation issue/accept slice with preassigned-role membership
 - [x] Deliver `E1-S1b2` member role mutation slice with owner/admin guardrails
@@ -2239,21 +2402,34 @@ This service owns the first MVP control-plane slices until extraction pressure j
   - [x] Control-plane provider pricing simulator read model + route
   - [x] Per-node dashboard scenario comparison screen
   - [x] Demo/docs/evidence refresh
-- [ ] `E8-S1` Enterprise private connector mode
-  - [ ] Private connector registry + signed execution grant path
-  - [ ] Runtime support for `cluster` and `byok_api` private connectors
-  - [ ] Buyer dashboard + demo/docs/evidence refresh
+- [x] `E8-S1` Enterprise private connector mode
+  - [x] Private connector registry + signed execution grant path
+  - [x] Runtime support for `cluster` and `byok_api` private connectors
+  - [x] Buyer dashboard + demo/docs/evidence refresh
 - [ ] Beta security review
 - [ ] Closed beta with live but capped spend
 
 ### `SPRINT-03` — Launch prep
 **Goal:** launch vetted-only public beta.
 
-- [ ] Provider dispute workflow
-- [ ] Rate limit / quota hardening
-- [ ] Subprocessor transparency page
-- [ ] Legal review of TOS / provider addendum / payout terms
-- [ ] Operational runbooks
+- [x] `E5-S3` Provider dispute workflow and chargeback reserve management
+  - [x] `E5-S3a` Dispute domain, persistence, finance APIs, and Stripe dispute webhook intake
+  - [x] `E5-S3b` Payout-eligibility deductions plus placement penalty integration
+  - [x] `E5-S3c` Buyer/provider dashboard visibility, demo/docs, and evidence
+- [x] `E4-S3` Gateway rate limit and quota hardening
+  - [x] `E4-S3a` Gateway sync admission register, request-rate limits, and token quota enforcement
+  - [x] `E4-S3b` Batch item ceilings, active-batch caps, worker quota enforcement, and consumer quota snapshot
+  - [x] `E4-S3c` Docs, demo evidence, and launch-prep verification
+- [x] `E9-S1` Subprocessor registry and DPA export pack
+  - [x] `E9-S1a` Compliance settings + control-plane registry and overview routes
+  - [x] `E9-S1b` Deterministic markdown DPA export generator
+  - [x] `E9-S1c` Public/buyer dashboard pages + demo/docs/evidence
+- [x] Subprocessor transparency page
+- [ ] Legal review of TOS / provider addendum / payout terms (externally blocked pending counsel review)
+- [x] `E10-S1` Operational runbooks and operations index
+  - [x] `E10-S1a` Canonical repo-tracked runbooks
+  - [x] `E10-S1b` Public operations index and demo/README discoverability
+  - [x] `E10-S1c` Evidence, release-gate reconciliation, and tests
 - [ ] Benchmark page vs 2–3 alternatives
 - [ ] Launch checklist completion
 
@@ -2409,20 +2585,20 @@ This service owns the first MVP control-plane slices until extraction pressure j
 - [ ] Signed workload enforcement live
 - [ ] Secrets release path reviewed
 - [ ] Vulnerability scans clean for critical issues
-- [ ] Incident response runbook complete
+- [x] Incident response runbook complete
 
 ### Compliance gates
 - [ ] TOS and provider addendum reviewed
-- [ ] DPA template ready
-- [ ] Subprocessor list published
+- [x] DPA template ready
+- [x] Subprocessor list published
 - [ ] Sanctions screening live
 - [ ] Tax/KYC flows live for supported payout geographies
 
 ### Operational gates
-- [ ] On-call rotation defined
-- [ ] Support macros and escalation paths defined
+- [x] On-call rotation defined
+- [x] Support macros and escalation paths defined
 - [ ] Benchmark page published
-- [ ] Provider dispute workflow tested
+- [x] `E5-S3` provider dispute workflow tested
 
 ### Market gates
 - [ ] 3 live supply partners
@@ -2655,6 +2831,12 @@ This company is worth building **if** it is marketed and engineered as a **secur
 
 ### Fraud, anomaly detection, and graph analysis
 - **SEFraud: Graph-based Self-Explainable Fraud Detection** — https://arxiv.org/abs/2406.11389
+
+### Operations and incident response
+- **NIST incident response program / SP 800-61 Rev. 3 overview** — https://csrc.nist.gov/projects/incident-response
+- **CISA Federal Government Cybersecurity Incident and Vulnerability Response Playbooks** — https://www.cisa.gov/resources-tools/resources/federal-government-cybersecurity-incident-and-vulnerability-response-playbooks
+- **Google SRE: Managing Incidents** — https://sre.google/sre-book/managing-incidents/
+- **Google Cloud support best practices** — https://docs.cloud.google.com/support/docs/best-practices
 
 ### Privacy, sanctions, and export controls
 - **European Commission: controller / processor obligations** — https://commission.europa.eu/law/law-topic/data-protection/rules-business-and-organisations/obligations/controllerprocessor/what-data-controller-or-data-processor_en

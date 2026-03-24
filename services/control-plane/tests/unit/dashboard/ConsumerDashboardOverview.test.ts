@@ -32,7 +32,18 @@ describe("ConsumerDashboardOverview", () => {
           p95LatencyMs: 220,
           totalTokens: 2048
         }
-      ]
+      ],
+      gatewayQuotaStatus: {
+        environment: "development",
+        fixedDayStartedAt: "2026-03-18T00:00:00.000Z",
+        fixedDayResetsAt: "2026-03-19T00:00:00.000Z",
+        fixedDayTokenLimit: 2000000,
+        fixedDayUsedTokens: 2048,
+        fixedDayRemainingTokens: 1997952,
+        syncRequestsPerMinutePerApiKey: 60,
+        maxBatchItemsPerJob: 500,
+        maxActiveBatchesPerOrganizationEnvironment: 5
+      }
     });
 
     expect(overview.toSnapshot()).toEqual({
@@ -64,7 +75,18 @@ describe("ConsumerDashboardOverview", () => {
           p95LatencyMs: 220,
           totalTokens: 2048
         }
-      ]
+      ],
+      gatewayQuotaStatus: {
+        environment: "development",
+        fixedDayStartedAt: "2026-03-18T00:00:00.000Z",
+        fixedDayResetsAt: "2026-03-19T00:00:00.000Z",
+        fixedDayTokenLimit: 2000000,
+        fixedDayUsedTokens: 2048,
+        fixedDayRemainingTokens: 1997952,
+        syncRequestsPerMinutePerApiKey: 60,
+        maxBatchItemsPerJob: 500,
+        maxActiveBatchesPerOrganizationEnvironment: 5
+      }
     });
   });
 });

@@ -13,4 +13,13 @@ describe("ConsumerSpendSummary", () => {
       lifetimeSettledSpendUsd: "48.25"
     });
   });
+
+  it("defaults missing funded and settled values to zero", () => {
+    const summary = ConsumerSpendSummary.create({});
+
+    expect(summary.toSnapshot()).toEqual({
+      lifetimeFundedUsd: "0.00",
+      lifetimeSettledSpendUsd: "0.00"
+    });
+  });
 });

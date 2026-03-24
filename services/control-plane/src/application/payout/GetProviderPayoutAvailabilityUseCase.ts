@@ -17,11 +17,12 @@ export class GetProviderPayoutAvailabilityUseCase {
   public constructor(private readonly repository: ProviderPayoutRepository) {}
 
   public async execute(request: GetProviderPayoutAvailabilityRequest): Promise<{
-    payoutAvailability: {
+      payoutAvailability: {
       organizationId: string;
       pendingEarningsUsd: string;
       reserveHoldbackUsd: string;
       withdrawableCashUsd: string;
+      activeDisputeHoldUsd: string;
       eligiblePayoutUsd: string;
       lastPayoutAt: string | null;
       lastPayoutStatus: "none" | "pending" | "paid" | "failed" | "canceled";

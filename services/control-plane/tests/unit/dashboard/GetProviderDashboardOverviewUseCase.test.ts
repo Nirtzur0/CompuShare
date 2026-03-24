@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { GetProviderDashboardOverviewUseCase } from "../../../src/application/dashboard/GetProviderDashboardOverviewUseCase.js";
 import { OrganizationMember } from "../../../src/domain/identity/OrganizationMember.js";
+import { UsdAmount } from "../../../src/domain/ledger/UsdAmount.js";
 import { OrganizationWalletSummary } from "../../../src/domain/ledger/OrganizationWalletSummary.js";
 import { ProviderInventorySummary } from "../../../src/domain/provider/ProviderInventorySummary.js";
 import { ProviderNode } from "../../../src/domain/provider/ProviderNode.js";
@@ -61,6 +62,12 @@ describe("GetProviderDashboardOverviewUseCase", () => {
             withdrawableCashCents: 775
           })
         ),
+      getProviderDisputeSummary: () =>
+        Promise.resolve({
+          activeDisputeCount: 2,
+          activeDisputeHold: UsdAmount.parse("3.50"),
+          recentLostDisputeCount: 1
+        }),
       listProviderDailyEarningsTrend: () => Promise.resolve([]),
       listProviderDailyTokenUsageTrend: () => Promise.resolve([])
     };
@@ -76,6 +83,9 @@ describe("GetProviderDashboardOverviewUseCase", () => {
 
     expect(response.overview).toMatchObject({
       activeNodeCount: 1,
+      activeDisputeCount: 2,
+      activeDisputeHoldUsd: "3.50",
+      recentLostDisputeCount90d: 1,
       actorRole: "finance",
       healthSummary: {
         healthy: 1,
@@ -105,6 +115,9 @@ describe("GetProviderDashboardOverviewUseCase", () => {
         actorUserId: "345db7ff-1355-43c7-b333-6ae1e7246c3f",
         metadata: {
           activeNodeCount: 1,
+          activeDisputeCount: 2,
+          activeDisputeHoldUsd: "3.50",
+          recentLostDisputeCount90d: 1,
           healthyNodeCount: 1,
           degradedNodeCount: 0,
           pausedNodeCount: 0
@@ -133,6 +146,12 @@ describe("GetProviderDashboardOverviewUseCase", () => {
               organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18"
             })
           ),
+        getProviderDisputeSummary: () =>
+          Promise.resolve({
+            activeDisputeCount: 0,
+            activeDisputeHold: UsdAmount.zero(),
+            recentLostDisputeCount: 0
+          }),
         listProviderDailyEarningsTrend: () => Promise.resolve([]),
         listProviderDailyTokenUsageTrend: () => Promise.resolve([])
       },
@@ -161,6 +180,12 @@ describe("GetProviderDashboardOverviewUseCase", () => {
               organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18"
             })
           ),
+        getProviderDisputeSummary: () =>
+          Promise.resolve({
+            activeDisputeCount: 0,
+            activeDisputeHold: UsdAmount.zero(),
+            recentLostDisputeCount: 0
+          }),
         listProviderDailyEarningsTrend: () => Promise.resolve([]),
         listProviderDailyTokenUsageTrend: () => Promise.resolve([])
       },
@@ -190,6 +215,12 @@ describe("GetProviderDashboardOverviewUseCase", () => {
               organizationId: "87057cb0-e0ca-4095-9f25-dd8103408b18"
             })
           ),
+        getProviderDisputeSummary: () =>
+          Promise.resolve({
+            activeDisputeCount: 0,
+            activeDisputeHold: UsdAmount.zero(),
+            recentLostDisputeCount: 0
+          }),
         listProviderDailyEarningsTrend: () => Promise.resolve([]),
         listProviderDailyTokenUsageTrend: () => Promise.resolve([])
       },

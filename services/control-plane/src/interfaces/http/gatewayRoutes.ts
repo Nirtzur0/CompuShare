@@ -9,6 +9,10 @@ import {
   GatewayAuthorizationHeaderError,
   PrivateConnectorRoutingUnavailableError
 } from "../../application/gateway/ExecuteChatCompletionUseCase.js";
+import {
+  GatewayRequestRateLimitExceededError,
+  GatewayTokenQuotaExceededError
+} from "../../application/gateway/GatewayUsageAdmissionUseCase.js";
 import type { ExecuteChatCompletionUseCase } from "../../application/gateway/ExecuteChatCompletionUseCase.js";
 import {
   GatewayUpstreamRequestError,
@@ -117,6 +121,30 @@ export function registerGatewayRoutes(
         return reply.status(401).send({
           error: "GATEWAY_API_KEY_AUTHENTICATION_ERROR",
           message: error.message
+        });
+      }
+
+      if (
+        error instanceof GatewayRequestRateLimitExceededError ||
+        error instanceof GatewayTokenQuotaExceededError
+      ) {
+        const resetAt =
+          error instanceof GatewayRequestRateLimitExceededError
+            ? error.metadata.windowResetsAt
+            : error.metadata.windowResetsAt;
+        const retryAfterSeconds = Math.max(
+          1,
+          Math.ceil((new Date(resetAt).getTime() - Date.now()) / 1000)
+        );
+        reply.header("Retry-After", String(retryAfterSeconds));
+
+        return reply.status(429).send({
+          error:
+            error instanceof GatewayRequestRateLimitExceededError
+              ? "GATEWAY_REQUEST_RATE_LIMIT_EXCEEDED"
+              : "GATEWAY_TOKEN_QUOTA_EXCEEDED",
+          message: error.message,
+          metadata: error.metadata
         });
       }
 
@@ -249,6 +277,29 @@ export function registerGatewayRoutes(
         return reply.status(401).send({
           error: "GATEWAY_API_KEY_AUTHENTICATION_ERROR",
           message: error.message
+        });
+      }
+
+      if (
+        error instanceof GatewayRequestRateLimitExceededError ||
+        error instanceof GatewayTokenQuotaExceededError
+      ) {
+        const retryAfterSeconds = Math.max(
+          1,
+          Math.ceil(
+            (new Date(error.metadata.windowResetsAt).getTime() - Date.now()) /
+              1000
+          )
+        );
+        reply.header("Retry-After", String(retryAfterSeconds));
+
+        return reply.status(429).send({
+          error:
+            error instanceof GatewayRequestRateLimitExceededError
+              ? "GATEWAY_REQUEST_RATE_LIMIT_EXCEEDED"
+              : "GATEWAY_TOKEN_QUOTA_EXCEEDED",
+          message: error.message,
+          metadata: error.metadata
         });
       }
 

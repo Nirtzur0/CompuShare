@@ -36,6 +36,15 @@ class InMemorySyncPlacementRepository implements SyncPlacementRepository {
     return Promise.resolve(this.summaries);
   }
 
+  public listRecentLostDisputeCountsByProviderOrganization(): Promise<
+    readonly {
+      providerOrganizationId: string;
+      lostDisputeCount: number;
+    }[]
+  > {
+    return Promise.resolve([]);
+  }
+
   public createPlacementDecisionLog(log: PlacementDecisionLog): Promise<void> {
     this.logs.push(log);
     return Promise.resolve();
@@ -155,6 +164,8 @@ describe("ResolveSyncPlacementUseCase", () => {
     expect(repository.logs).toHaveLength(1);
     expect(repository.logs[0]?.toSnapshot()).toMatchObject({
       candidateCount: 3,
+      disputePenaltyMultiplier: 1,
+      lostDisputeCount90d: 0,
       selectedProviderNodeId: "01c6255a-8bd1-4380-8579-f90c837e0a20",
       rejectionReason: null
     });
@@ -164,6 +175,8 @@ describe("ResolveSyncPlacementUseCase", () => {
     });
     expect(auditLog.events[0]?.metadata).toMatchObject({
       candidateCount: 3,
+      disputePenaltyMultiplier: 1,
+      lostDisputeCount90d: 0,
       selectedProviderNodeId: "01c6255a-8bd1-4380-8579-f90c837e0a20",
       rejectionReason: null
     });

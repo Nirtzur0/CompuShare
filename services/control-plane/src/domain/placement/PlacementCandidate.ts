@@ -13,6 +13,8 @@ export interface PlacementCandidateSnapshot {
   scoreBreakdown?: {
     pricePerformanceScore: number;
     warmCacheMultiplier: number;
+    disputePenaltyMultiplier: number;
+    lostDisputeCount90d: number;
     benchmarkThroughputTokensPerSecond: number;
     priceFloorUsdPerHour: number;
   };
@@ -40,6 +42,8 @@ export class PlacementCandidate {
     public readonly score: number,
     public readonly pricePerformanceScore: number,
     public readonly warmCacheMultiplier: number,
+    public readonly disputePenaltyMultiplier: number,
+    public readonly lostDisputeCount90d: number,
     public readonly warmCacheExpiresAt: Date | null,
     public readonly matchedGpu: ProviderGpuInventorySnapshot,
     public readonly latestBenchmark: ProviderBenchmarkReportSnapshot | null
@@ -51,6 +55,8 @@ export class PlacementCandidate {
     score: number;
     pricePerformanceScore: number;
     warmCacheMultiplier: number;
+    disputePenaltyMultiplier: number;
+    lostDisputeCount90d: number;
     warmCacheExpiresAt: Date | null;
   }): PlacementCandidate {
     const routingProfile = input.summary.node.routingProfile;
@@ -72,6 +78,8 @@ export class PlacementCandidate {
       input.score,
       input.pricePerformanceScore,
       input.warmCacheMultiplier,
+      input.disputePenaltyMultiplier,
+      input.lostDisputeCount90d,
       input.warmCacheExpiresAt,
       input.matchedGpu,
       input.summary.latestBenchmark?.toSnapshot() ?? null
@@ -90,6 +98,8 @@ export class PlacementCandidate {
       scoreBreakdown: {
         pricePerformanceScore: this.pricePerformanceScore,
         warmCacheMultiplier: this.warmCacheMultiplier,
+        disputePenaltyMultiplier: this.disputePenaltyMultiplier,
+        lostDisputeCount90d: this.lostDisputeCount90d,
         benchmarkThroughputTokensPerSecond:
           this.latestBenchmark?.throughputTokensPerSecond ?? 0,
         priceFloorUsdPerHour: this.priceFloorUsdPerHour

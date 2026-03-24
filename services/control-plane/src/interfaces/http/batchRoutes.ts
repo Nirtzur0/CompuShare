@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { CreateGatewayBatchUseCase } from "../../application/batch/CreateGatewayBatchUseCase.js";
+import {
+  GatewayActiveBatchLimitExceededError,
+  GatewayBatchItemLimitExceededError
+} from "../../application/batch/CreateGatewayBatchUseCase.js";
 import type { GetGatewayBatchUseCase } from "../../application/batch/GetGatewayBatchUseCase.js";
 import type { CancelGatewayBatchUseCase } from "../../application/batch/CancelGatewayBatchUseCase.js";
 import { GatewayBatchNotFoundError } from "../../application/batch/GetGatewayBatchUseCase.js";
@@ -63,6 +67,18 @@ export function registerBatchRoutes(
       if (error instanceof DomainValidationError) {
         return reply.status(400).send({
           error: "DOMAIN_VALIDATION_ERROR",
+          message: error.message
+        });
+      }
+      if (error instanceof GatewayBatchItemLimitExceededError) {
+        return reply.status(400).send({
+          error: "GATEWAY_BATCH_ITEM_LIMIT_EXCEEDED",
+          message: error.message
+        });
+      }
+      if (error instanceof GatewayActiveBatchLimitExceededError) {
+        return reply.status(429).send({
+          error: "GATEWAY_ACTIVE_BATCH_LIMIT_EXCEEDED",
           message: error.message
         });
       }
